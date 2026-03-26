@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "842997071492",
+    "project_id": "yuli-tracker",
+    "storage_bucket": "yuli-tracker.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:842997071492:android:96a75fe2891ed9c0b6ccd1",
+        "android_client_info": {
+          "package_name": "com.example.baby_tracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD64W7n5ybKeHpcCaVVzlUCXiNQb5OmfYk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
