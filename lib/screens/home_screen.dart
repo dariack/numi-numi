@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
+import '../services/widget_service.dart';
 import 'log_event_sheet.dart';
 
 const kSleepColor = Color(0xFFa78bfa); // light purple
@@ -19,10 +20,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic> _stats = {};
   bool _loading = true;
   Timer? _timer;
+  late final WidgetService _widgetService;
 
   @override
   void initState() {
     super.initState();
+    _widgetService = WidgetService(firestore: widget.service);
     _load();
     _timer = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) { setState(() {}); _load(); } });
   }
@@ -31,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final s = await widget.service.getQuickStats();
       if (mounted) setState(() { _stats = s; _loading = false; });
+      _widgetService.update();
     } catch (e) { if (mounted) setState(() => _loading = false); }
   }
 
@@ -108,6 +112,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final feeds24h = _stats['feeds24h'] ?? 0;
     final sleepsAvg = (_stats['sleepsAvg3d'] as double?)?.toStringAsFixed(1) ?? '--';
     final feedsAvg = (_stats['feedsAvg3d'] as double?)?.toStringAsFixed(1) ?? '--';
+    final sleepAvgDur = _stats['sleepAvgDur3d'] as double?;
+    final feedAvgDur = _stats['feedAvgDur3d'] as double?;
 
     return Scaffold(
       body: _loading
@@ -129,7 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? 'Last: ${_ago(lastSleep.endTime ?? lastSleep.startTime)} ago'
                     : 'No data',
                   line2: '24h: $sleeps24h naps',
-                  line3: 'Avg/day: $sleepsAvg (3-day avg)'),
+                  line3: 'Avg/day: $sleepsAvg (3-day avg)',
+                  line4: sleepAvgDur != null ? 'Avg duration: ${_fmt(Duration(minutes: sleepAvgDur.round()))} (3-day)' : null),
                 const SizedBox(height: 8),
 
                 // Feed stat
@@ -139,7 +146,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     : 'No data',
                   line1b: lastFeed?.duration != null ? 'Duration: ${_fmt(lastFeed!.duration)}' : null,
                   line2: '24h: $feeds24h feeds',
-                  line3: 'Avg/day: $feedsAvg (3-day avg)'),
+                  line3: 'Avg/day: $feedsAvg (3-day avg)',
+                  line4: feedAvgDur != null ? 'Avg duration: ${_fmt(Duration(minutes: feedAvgDur.round()))} (3-day)' : null),
                 const SizedBox(height: 8),
 
                 // Diaper stat
@@ -210,9 +218,9 @@ class _OngoingBanner extends StatelessWidget {
 
 class _StatCard extends StatelessWidget {
   final Color cardBg; final String emoji; final String title;
-  final String line1; final String? line1b; final String line2; final String line3;
+  final String line1; final String? line1b; final String line2; final String line3; final String? line4;
   const _StatCard({required this.cardBg, required this.emoji, required this.title,
-    required this.line1, this.line1b, required this.line2, required this.line3});
+    required this.line1, this.line1b, required this.line2, required this.line3, this.line4});
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -231,6 +239,7 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(line2, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
           Text(line3, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          if (line4 != null) Text(line4!, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
         ])),
       ]),
     );

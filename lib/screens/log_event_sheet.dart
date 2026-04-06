@@ -46,7 +46,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
       BabyEvent? created;
       if (widget.ongoing != null) {
         final dur = _durationMin ?? DateTime.now().difference(_when).inMinutes;
-        await widget.service.completeOngoing(widget.ongoing!.id, durationMinutes: dur);
+        await widget.service.completeOngoing(widget.ongoing!.id, durationMinutes: dur, side: _side);
       } else {
         DateTime? endTime;
         if (_hasDuration && _durationMin != null) {
@@ -88,7 +88,11 @@ class _LogEventSheetState extends State<LogEventSheet> {
         setState(() => _step = 1);
       }
     } else if (_step == 1) {
-      if (widget.type == EventType.feed) {
+      if (widget.type == EventType.feed && widget.ongoing == null) {
+        // New feed — always ask side
+        setState(() => _step = 3);
+      } else if (widget.type == EventType.feed && widget.ongoing != null && widget.ongoing!.side == null) {
+        // Ending ongoing feed that has no side (e.g. started from widget) — ask side
         setState(() => _step = 3);
       } else {
         _save();

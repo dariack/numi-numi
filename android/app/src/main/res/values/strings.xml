@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Shows last feed and sleep times for Yuli</string>
+    <string name="poop_widget_description">Quick log poop diaper</string>
+    <string name="feed_widget_description">Quick start/end feed</string>
+    <string name="shortcut_poop">Log Poop</string>
+    <string name="shortcut_poop_long">Log poop diaper</string>
+    <string name="shortcut_feed">Start Feed</string>
+    <string name="shortcut_feed_long">Start feeding</string>
+</resources>

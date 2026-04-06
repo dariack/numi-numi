@@ -154,10 +154,95 @@ exports.dialogflowWebhook = functions.https.onRequest(async (req, res) => {
 });
 
 exports.babyApi = functions.https.onRequest(async (req, res) => {
+  // CORS for voice pages
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+
   const familyId = req.query.family || "mello-ackerman";
   const action = req.query.action;
+  const voice = req.query.voice;
 
   try {
+    // ===== VOICE ACTIONS (v2 data model) =====
+    if (voice) {
+      const ref = eventsRef(familyId);
+      const now = admin.firestore.Timestamp.now();
+      let message = "";
+
+      switch (voice) {
+        case "poop":
+          await ref.add({ type: "diaper", startTime: now, pee: false, poop: true, createdBy: "voice", createdAt: now });
+          message = "💩 Poop logged!";
+          break;
+        case "pee":
+          await ref.add({ type: "diaper", startTime: now, pee: true, poop: false, createdBy: "voice", createdAt: now });
+          message = "💧 Pee logged!";
+          break;
+        case "peepoop":
+          await ref.add({ type: "diaper", startTime: now, pee: true, poop: true, createdBy: "voice", createdAt: now });
+          message = "🧷 Pee + Poop logged!";
+          break;
+        case "startfeed":
+          await ref.add({ type: "feed", startTime: now, pee: false, poop: false, createdBy: "voice", createdAt: now });
+          message = "🍼 Feed started!";
+          break;
+        case "startfeedleft":
+          await ref.add({ type: "feed", startTime: now, side: "left", pee: false, poop: false, createdBy: "voice", createdAt: now });
+          message = "🤱 Feed started (left)!";
+          break;
+        case "startfeedright":
+          await ref.add({ type: "feed", startTime: now, side: "right", pee: false, poop: false, createdBy: "voice", createdAt: now });
+          message = "🤱 Feed started (right)!";
+          break;
+        case "endfeed": {
+          const feedSnap = await ref.where("type", "==", "feed").orderBy("startTime", "desc").limit(1).get();
+          if (!feedSnap.empty) {
+            const feedDoc = feedSnap.docs[0];
+            const feedData = feedDoc.data();
+            if (!feedData.duration && !feedData.endTime) {
+              const startMs = feedData.startTime.toMillis();
+              const dur = Math.round((Date.now() - startMs) / 60000);
+              await feedDoc.ref.update({ endTime: now, duration: dur });
+              message = "⏹️ Feed ended (" + dur + "m)!";
+            } else {
+              message = "No ongoing feed to end.";
+            }
+          } else {
+            message = "No feed found.";
+          }
+          break;
+        }
+        case "startsleep":
+          await ref.add({ type: "sleep", startTime: now, pee: false, poop: false, createdBy: "voice", createdAt: now });
+          message = "😴 Sleep started!";
+          break;
+        case "endsleep": {
+          const sleepSnap = await ref.where("type", "==", "sleep").orderBy("startTime", "desc").limit(1).get();
+          if (!sleepSnap.empty) {
+            const sleepDoc = sleepSnap.docs[0];
+            const sleepData = sleepDoc.data();
+            if (!sleepData.duration && !sleepData.endTime) {
+              const startMs = sleepData.startTime.toMillis();
+              const dur = Math.round((Date.now() - startMs) / 60000);
+              await sleepDoc.ref.update({ endTime: now, duration: dur });
+              message = "⏰ Woke up (" + dur + "m)!";
+            } else {
+              message = "No ongoing sleep to end.";
+            }
+          } else {
+            message = "No sleep found.";
+          }
+          break;
+        }
+        default:
+          return res.status(400).json({ error: "Unknown voice action: " + voice });
+      }
+      return res.json({ message });
+    }
+
+    // ===== LEGACY API (v1 data model) =====
     if (req.method === "POST" || action) {
       const type = req.body?.type || action;
       if (!type) {

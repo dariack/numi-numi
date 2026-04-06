@@ -1,11 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:home_widget/home_widget.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/patterns_screen.dart';
 import 'services/firestore_service.dart';
+import 'models/event.dart';
+
+/// Handle widget tap actions via deep link URI
+Future<void> handleWidgetAction(Uri? uri, FirestoreService service) async {
+  if (uri == null) return;
+  final db = FirebaseFirestore.instance;
+  final ref = db.collection('families').doc(service.familyId).collection('events');
+
+  if (uri.host == 'logPoop') {
+    await ref.add({
+      'type': 'diaper',
+      'startTime': Timestamp.now(),
+      'pee': false,
+      'poop': true,
+      'createdBy': 'widget',
+      'createdAt': Timestamp.now(),
+    });
+  } else if (uri.host == 'toggleFeed') {
+    final ongoing = await service.getOngoing();
+    if (ongoing != null && ongoing.type == EventType.feed) {
+      // There's an ongoing feed — don't auto-end, user will see it in the app
+      return;
+    }
+    // Start a new feed with no side
+    await ref.add({
+      'type': 'feed',
+      'startTime': Timestamp.now(),
+      'pee': false,
+      'poop': false,
+      'createdBy': 'widget',
+      'createdAt': Timestamp.now(),
+    });
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -89,6 +126,30 @@ class _MainAppState extends State<MainApp> {
     super.initState();
     _service = FirestoreService(familyId: widget.familyId);
     _checkMigration();
+    _handleWidgetLaunch();
+  }
+
+  Future<void> _handleWidgetLaunch() async {
+    try {
+      const channel = MethodChannel('app.channel.shared.data');
+      final String? action = await channel.invokeMethod('getIntentAction');
+      if (action != null && action.isNotEmpty) {
+        await handleWidgetAction(Uri.parse('yuliTracker://$action'), _service);
+        if (mounted) {
+          if (action == 'logPoop') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('💩 Poop logged!'), duration: Duration(seconds: 2)),
+            );
+          } else if (action == 'toggleFeed') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('🍼 Feed started!'), duration: Duration(seconds: 2)),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      // Shortcut not used, normal launch
+    }
   }
 
   Future<void> _checkMigration() async {

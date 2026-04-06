@@ -5,12 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Yuli Tracker</title>
 <style>
-:root{--bg:#0f1117;--card:#1a1d27;--card2:#151820;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--purple:#8b5cf6;--pdim:rgba(139,92,246,0.15);--sleep:#a78bfa;--feed:#f59e0b;--diaper:#2dd4bf;--sleepdim:rgba(167,139,250,0.1);--feeddim:rgba(245,158,11,0.1);--diaperdim:rgba(45,212,191,0.1)}
+:root{--bg:#0f1117;--card:#1a1d27;--card2:#151820;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--purple:#8b5cf6;--pdim:rgba(139,92,246,0.15);--sleep:#a78bfa;--feed:#f59e0b;--diaper:#2dd4bf;--pump:#f472b6;--sleepdim:rgba(167,139,250,0.1);--feeddim:rgba(245,158,11,0.1);--diaperdim:rgba(45,212,191,0.1);--pumpdim:rgba(244,114,182,0.1)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 .shell{display:flex;min-height:100vh}
-
-/* Sidebar */
 .sidebar{width:200px;background:var(--card);border-right:1px solid var(--border);padding:20px 0;flex-shrink:0;position:sticky;top:0;height:100vh}
 .sidebar .logo{padding:0 20px 20px;font-size:1.2rem;font-weight:700;border-bottom:1px solid var(--border);margin-bottom:12px}
 .sidebar .logo span{color:var(--purple)}
@@ -22,7 +20,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .sidebar .fam-code{font-size:0.75rem;color:var(--muted)}
 .sidebar .fam-name{font-size:0.85rem;font-weight:600;margin-bottom:2px}
 .sidebar .change-btn{font-size:0.75rem;color:var(--purple);cursor:pointer;text-decoration:underline}
-
 .main{flex:1;padding:32px 40px;max-width:960px}
 @media(max-width:768px){
   .shell{flex-direction:column}
@@ -34,11 +31,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .sidebar .fam-name{margin:0;font-size:0.78rem} .sidebar .fam-code{display:none}
   .main{padding:16px}
 }
-
-/* Page title */
 .page-title{font-size:1.3rem;font-weight:700;margin-bottom:20px}
-
-/* Stats */
 .stats-section{background:var(--card2);border-radius:14px;padding:20px;margin-bottom:24px;border:1px solid var(--border)}
 .section-label{font-size:0.72rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
 .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
@@ -55,22 +48,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .ongoing .ot{font-weight:700;font-size:1rem;color:var(--sleep)}
 .ongoing.feed .ot{color:var(--feed)}
 .ongoing .sub{font-size:0.82rem;color:var(--muted)}
-
-/* Log buttons */
-.log-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px}
+.log-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin-bottom:24px}
 .lbtn{border:2px solid var(--border);border-radius:14px;padding:20px 10px;text-align:center;cursor:pointer;transition:all 0.15s;background:transparent}
 .lbtn:hover{border-color:var(--purple);background:var(--pdim);transform:translateY(-1px)}
 .lbtn.active{border-color:var(--sleep);background:var(--sleepdim)}
 .lbtn.active-f{border-color:var(--feed);background:var(--feeddim)}
 .lbtn .le{font-size:2rem;margin-bottom:6px}
 .lbtn .ll{font-size:0.95rem;font-weight:700}
-.lbtn[data-t=sleep] .ll{color:var(--sleep)} .lbtn[data-t=feed] .ll{color:var(--feed)} .lbtn[data-t=diaper] .ll{color:var(--diaper)}
-
-/* History */
+.lbtn[data-t=sleep] .ll{color:var(--sleep)} .lbtn[data-t=feed] .ll{color:var(--feed)} .lbtn[data-t=diaper] .ll{color:var(--diaper)} .lbtn[data-t=pump] .ll{color:var(--pump)}
 .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .chip{padding:6px 14px;border-radius:20px;font-size:0.82rem;cursor:pointer;border:1px solid var(--border);color:var(--muted);transition:all 0.15s}
 .chip:hover,.chip.sel{background:var(--pdim);color:var(--purple);border-color:var(--purple)}
-.history-grid{display:grid;grid-template-columns:1fr;gap:0}
 .day-hdr{font-size:1rem;font-weight:700;color:var(--purple);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
 .period-hdr{font-size:0.78rem;color:var(--muted);font-weight:600;margin:12px 0 6px;padding-left:4px}
 .ev-table{width:100%;border-collapse:collapse}
@@ -83,10 +71,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .ev-table .td-acts button{background:none;border:none;cursor:pointer;font-size:0.85rem;padding:4px 8px;border-radius:6px;color:var(--muted)}
 .ev-table .td-acts button:hover{background:var(--pdim)}
 .ev-table .td-acts .del:hover{color:#ef4444;background:rgba(239,68,68,0.1)}
-
-/* Modal */
 .modal-bg{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:100}
-.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:440px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:440px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-height:85vh;overflow-y:auto}
 .modal h3{margin-bottom:20px;font-size:1.15rem}
 .modal .step-label{font-size:0.88rem;color:var(--muted);margin-bottom:10px}
 .modal .step-sub{font-size:0.78rem;color:#555;margin-bottom:10px}
@@ -96,30 +82,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .modal .opt.sel{border-color:var(--purple);background:var(--pdim);color:var(--purple);font-weight:700}
 .modal .opt.sel-r{border-color:#ef4444;background:rgba(239,68,68,0.1);color:#ef4444;font-weight:700}
 .modal .opt.sel-o{border-color:var(--feed);background:var(--feeddim);color:var(--feed);font-weight:700}
+.modal .opt.sel-p{border-color:var(--pump);background:var(--pumpdim);color:var(--pump);font-weight:700}
 .modal .custom-row{margin-bottom:14px}
-.modal .custom-row input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px;width:100%;font-size:0.9rem}
+.modal .custom-row input,.modal .custom-row select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px;width:100%;font-size:0.9rem}
 .modal .custom-row label{font-size:0.78rem;color:var(--muted);display:block;margin-bottom:4px}
 .modal .btn-row{display:flex;gap:10px;margin-top:20px}
 .modal .btn-row button{flex:1;padding:12px;border-radius:10px;font-size:0.95rem;font-weight:700;cursor:pointer;border:none;transition:opacity 0.15s}
 .modal .btn-row button:hover{opacity:0.85}
 .modal .btn-cancel{background:var(--border);color:var(--text)}
 .modal .btn-save{background:var(--purple);color:#fff}
-
-/* Snackbar */
 .snack{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 24px;font-size:0.9rem;z-index:200;display:flex;align-items:center;gap:14px;box-shadow:0 4px 24px rgba(0,0,0,0.5)}
 .snack .undo{color:var(--purple);cursor:pointer;font-weight:700;font-size:0.85rem}
-
-/* Connect screen */
 .connect-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;text-align:center}
 .connect-screen .big-emoji{font-size:4rem;margin-bottom:16px}
 .connect-screen h2{margin-bottom:8px}
 .connect-screen p{color:var(--muted);margin-bottom:24px;font-size:0.9rem}
 .connect-screen input{background:var(--card);border:1px solid var(--border);color:var(--text);padding:12px 16px;border-radius:10px;font-size:1rem;width:260px;text-align:center;margin-bottom:12px}
 .connect-screen button{background:var(--purple);color:#fff;border:none;padding:12px 32px;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer}
-
 .loading{text-align:center;padding:60px;color:var(--muted)}
 .loading .sp{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.stock-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px}
+.stock-card .sc-title{font-weight:700;font-size:0.9rem;margin-bottom:6px}
+.stock-card .sc-row{font-size:0.82rem;color:var(--muted);line-height:1.6}
+.stock-card .sc-row.expired{color:#ef4444;text-decoration:line-through}
+.stock-card .sc-row.spoiled{color:#ef4444;text-decoration:line-through}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--border)}
+.toggle-row .tr-label{font-size:0.95rem}
+.toggle-row .tr-toggle{width:44px;height:24px;border-radius:12px;background:var(--border);cursor:pointer;position:relative;transition:background 0.2s}
+.toggle-row .tr-toggle.on{background:var(--purple)}
+.toggle-row .tr-toggle::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left 0.2s}
+.toggle-row .tr-toggle.on::after{left:22px}
 </style>
 </head>
 <body>
@@ -127,11 +120,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <div id="connect-root"></div>
 <div id="app-root" style="display:none">
   <div class="shell">
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar-nav">
       <div class="logo">👶 <span>Yuli</span></div>
       <div class="nav-item active" data-tab="home" onclick="setTab('home')"><span class="icon">🏠</span> Home</div>
       <div class="nav-item" data-tab="history" onclick="setTab('history')"><span class="icon">📋</span> History</div>
       <div class="nav-item" data-tab="patterns" onclick="setTab('patterns')"><span class="icon">📊</span> Patterns</div>
+      <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
         <div class="fam-name" id="fam-display"></div>
         <div class="fam-code">Family code</div>
@@ -151,6 +145,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 var FC={apiKey:"AIzaSyAbCR1lJ3JIyHyRsV5IboL1h4LEwe9EQ2E",authDomain:"yuli-tracker.firebaseapp.com",projectId:"yuli-tracker",storageBucket:"yuli-tracker.firebasestorage.app",messagingSenderId:"842997071492",appId:"1:842997071492:web:e460e8f21d193e2bb6ccd1"};
 firebase.initializeApp(FC);var db=firebase.firestore();
 var fid=localStorage.getItem('familyId')||'',unsub=null,allEv=[],tab='home',typeF='all',timeF='all',charts={},rd=7;
+var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false};
+var cfgUnsub=null;
 
 if(fid)startApp();else showConnect();
 
@@ -159,62 +155,105 @@ function showConnect(){
   document.getElementById('connect-root').innerHTML='<div class="connect-screen"><div class="big-emoji">👶</div><h2>Baby Tracker</h2><p>Enter your family code to get started.<br>Share this code with your partner to sync data.</p><input type="text" id="fid" placeholder="e.g. smith-family" onkeydown="if(event.key===\'Enter\')connect()"/><br><button onclick="connect()">Get Started</button></div>';
 }
 function connect(){fid=document.getElementById('fid').value.trim().toLowerCase().replace(/\s+/g,'-');if(!fid)return;localStorage.setItem('familyId',fid);startApp()}
-function disconnect(){localStorage.removeItem('familyId');fid='';if(unsub)unsub();showConnect()}
+function disconnect(){localStorage.removeItem('familyId');fid='';if(unsub)unsub();if(cfgUnsub)cfgUnsub();showConnect()}
 function startApp(){
   document.getElementById('connect-root').innerHTML='';
   document.getElementById('app-root').style.display='block';
   document.getElementById('fam-display').textContent=fid;
+  listenConfig();
   listen();
+}
+function listenConfig(){
+  if(cfgUnsub)cfgUnsub();
+  cfgUnsub=db.collection('families').doc(fid).collection('settings').doc('config').onSnapshot(function(doc){
+    if(doc.exists){var d=doc.data();cfg={trackSleep:d.trackSleep!==false,trackFeed:d.trackFeed!==false,trackDiaper:d.trackDiaper!==false,trackPump:d.trackPump===true}}
+    updateNav();render();
+  });
+}
+function saveCfg(){db.collection('families').doc(fid).collection('settings').doc('config').set(cfg)}
+function updateNav(){
+  var sb=document.getElementById('sidebar-nav');
+  var items=sb.querySelectorAll('.nav-item[data-tab=pump]');
+  items.forEach(function(el){el.remove()});
+  if(cfg.trackPump){
+    var pnav=document.createElement('div');pnav.className='nav-item';pnav.setAttribute('data-tab','pump');pnav.onclick=function(){setTab('pump')};
+    pnav.innerHTML='<span class="icon">🧴</span> Pump';
+    var settingsNav=sb.querySelector('.nav-item[data-tab=settings]');
+    sb.insertBefore(pnav,settingsNav);
+  }
+  sb.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===tab)});
 }
 function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<div class="loading"><div class="sp"></div>Loading...</div>';
   unsub=db.collection('families').doc(fid).collection('events').orderBy('startTime','desc').limit(500).onSnapshot(function(s){
-    allEv=[];s.forEach(function(d){try{var data=d.data();if(!data.startTime)return;allEv.push(Object.assign({id:d.id},data,{startTime:data.startTime.toDate(),endTime:data.endTime?data.endTime.toDate():null}))}catch(e){}});
+    allEv=[];s.forEach(function(d){try{var data=d.data();if(!data.startTime)return;allEv.push(Object.assign({id:d.id},data,{startTime:data.startTime.toDate(),endTime:data.endTime?data.endTime.toDate():null,expiresAt:data.expiresAt?data.expiresAt.toDate():null}))}catch(e){}});
     render()},function(e){document.getElementById('main').innerHTML='<div class="loading">Error: '+e.message+'</div>'})}
 
-function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.textContent.trim().toLowerCase()===t||el.getAttribute('data-tab')===t)});render()}
-function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});if(tab==='home')renderHome();else if(tab==='history')renderHistory();else renderPatterns()}
+function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
+function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
+  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='patterns')renderPatterns();else if(tab==='pump')renderPump();else if(tab==='settings')renderSettings()}
 
 // ==================== HOME ====================
 function renderHome(){
   var now=new Date(),h='';
   var ong=findOngoing();
-  var ls=lastOf('sleep'),lf=lastOf('feed'),ld=lastOf('diaper');
+  var ls=cfg.trackSleep?lastOf('sleep'):null,lf=cfg.trackFeed?lastOf('feed'):null,ld=cfg.trackDiaper?lastOf('diaper'):null;
   var d24=new Date(now-864e5),d3=new Date(now-2592e5);
-  var s24=allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d24}).length;
-  var f24=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d24}).length;
-  var dps24=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d24});
-  var p24=dps24.filter(function(e){return e.pee}).length,po24=dps24.filter(function(e){return e.poop}).length;
-  var dps3=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d3});
-  var p3=(dps3.filter(function(e){return e.pee}).length/3).toFixed(1),po3=(dps3.filter(function(e){return e.poop}).length/3).toFixed(1);
-  var s3=(allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d3}).length/3).toFixed(1);
-  var f3=(allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d3}).length/3).toFixed(1);
-  var lastSide=null;allEv.forEach(function(e){if(!lastSide&&e.type==='feed'&&e.side)lastSide=e.side});
+  var lastSide=null;if(cfg.trackFeed)allEv.forEach(function(e){if(!lastSide&&e.type==='feed'&&e.side)lastSide=e.side});
 
   h+='<div class="page-title">Dashboard</div>';
   h+='<div class="stats-section"><div class="section-label">Quick Stats</div>';
   if(ong){var dur=fmt(now-ong.startTime);var cls=ong.type==='sleep'?'':'feed';var st=ong.side?' ('+ong.side+')':'';
     h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>'}
-  h+=mkStat('😴','Sleep',ls,s24+' naps',s3,null);
-  h+=mkStat('🍼','Feed',lf,f24+' feeds',f3,lastSide);
-  h+=mkDiaperStat(ld,p24,po24,p3,po3);
+
+  if(cfg.trackSleep){
+    var s24=allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d24}).length;
+    var sl3=allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d3});var s3=(sl3.length/3).toFixed(1);
+    var sl3d=sl3.filter(function(e){return e.duration});var sAvgDur=sl3d.length?fmtMin(sl3d.reduce(function(s,e){return s+e.duration},0)/sl3d.length):'--';
+    h+=mkStat('😴','Sleep',ls,s24+' naps',s3,null,sAvgDur);
+  }
+  if(cfg.trackFeed){
+    var f24=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d24}).length;
+    var fl3=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d3});var f3=(fl3.length/3).toFixed(1);
+    var fl3d=fl3.filter(function(e){return e.duration});var fAvgDur=fl3d.length?fmtMin(fl3d.reduce(function(s,e){return s+e.duration},0)/fl3d.length):'--';
+    h+=mkStat('🍼','Feed',lf,f24+' feeds',f3,lastSide,fAvgDur);
+  }
+  if(cfg.trackDiaper){
+    var dps24=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d24});
+    var p24=dps24.filter(function(e){return e.pee}).length,po24=dps24.filter(function(e){return e.poop}).length;
+    var dps3=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d3});
+    var p3d=(dps3.filter(function(e){return e.pee}).length/3).toFixed(1),po3=(dps3.filter(function(e){return e.poop}).length/3).toFixed(1);
+    h+=mkDiaperStat(ld,p24,po24,p3d,po3);
+  }
+  if(cfg.trackPump){
+    var lp=lastOf('pump');
+    var pumps24=allEv.filter(function(e){return e.type==='pump'&&e.startTime>=d24});
+    var totalMl24=pumps24.reduce(function(s,e){return s+(e.ml||0)},0);
+    h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump</div>';
+    if(lp){h+='<div class="l">Last: '+fmt(Date.now()-lp.startTime.getTime())+' ago'+(lp.ml?' · '+lp.ml+'ml':'')+'</div>'}
+    else h+='<div class="l">No data</div>';
+    h+='<div class="l2">24h: '+pumps24.length+' pumps · '+totalMl24+'ml</div></div></div>';
+  }
   h+='</div>';
 
   h+='<div class="section-label">What\'s happening?</div>';
   h+='<div class="log-grid">';
   var sa=ong&&ong.type==='sleep',fa=ong&&ong.type==='feed';
-  h+='<div class="lbtn '+(sa?'active':'')+'" data-t="sleep" onclick="openLog(\'sleep\')"><div class="le">'+(sa?'⏰':'😴')+'</div><div class="ll">'+(sa?'End Sleep':'Sleep')+'</div></div>';
-  h+='<div class="lbtn '+(fa?'active-f':'')+'" data-t="feed" onclick="openLog(\'feed\')"><div class="le">'+(fa?'⏰':'🍼')+'</div><div class="ll">'+(fa?'End Feed':'Feed')+'</div></div>';
-  h+='<div class="lbtn" data-t="diaper" onclick="openLog(\'diaper\')"><div class="le">🧷</div><div class="ll">Diaper</div></div>';
+  if(cfg.trackSleep)h+='<div class="lbtn '+(sa?'active':'')+'" data-t="sleep" onclick="openLog(\'sleep\')"><div class="le">'+(sa?'⏰':'😴')+'</div><div class="ll">'+(sa?'End Sleep':'Sleep')+'</div></div>';
+  if(cfg.trackFeed)h+='<div class="lbtn '+(fa?'active-f':'')+'" data-t="feed" onclick="openLog(\'feed\')"><div class="le">'+(fa?'⏰':'🍼')+'</div><div class="ll">'+(fa?'End Feed':'Feed')+'</div></div>';
+  if(cfg.trackDiaper)h+='<div class="lbtn" data-t="diaper" onclick="openLog(\'diaper\')"><div class="le">🧷</div><div class="ll">Diaper</div></div>';
+  if(cfg.trackPump)h+='<div class="lbtn" data-t="pump" onclick="openLog(\'pump\')"><div class="le">🧴</div><div class="ll">Pump</div></div>';
   h+='</div>';
   document.getElementById('main').innerHTML=h;
 }
 
-function mkStat(em,title,last,cnt24,avg3,side){
+function mkStat(em,title,last,cnt24,avg3,side,avgDur){
   var h='<div class="stat"><div class="em">'+em+'</div><div class="info"><div class="t">'+title+'</div>';
   if(last){var endT=last.endTime||last.startTime;h+='<div class="l">Last: '+fmt(Date.now()-endT.getTime())+' ago';if(side)h+=' ('+side+')';h+='</div>';
     if(last.duration)h+='<div class="l">Duration: '+fmtMin(last.duration)+'</div>'}
   else h+='<div class="l">No data</div>';
-  h+='<div class="l2">24h: '+cnt24+'</div><div class="l2">Avg/day: '+avg3+' (3-day)</div></div></div>';return h}
+  h+='<div class="l2">24h: '+cnt24+'</div><div class="l2">Avg/day: '+avg3+' (3-day)</div>';
+  if(avgDur)h+='<div class="l2">Avg duration: '+avgDur+' (3-day)</div>';
+  h+='</div></div>';return h}
 
 function mkDiaperStat(last,p24,po24,p3,po3){
   var h='<div class="stat"><div class="em">🧷</div><div class="info"><div class="t">Diaper</div>';
@@ -226,18 +265,27 @@ function mkDiaperStat(last,p24,po24,p3,po3){
 function renderHistory(){
   var h='<div class="page-title">History</div>';
   h+='<div class="filters">';
-  ['all','sleep','feed','diaper'].forEach(function(f){var lbl={all:'All',sleep:'😴 Sleep',feed:'🍼 Feed',diaper:'🧷 Diaper'}[f];
-    h+='<span class="chip '+(typeF===f?'sel':'')+'" onclick="typeF=\''+f+'\';render()">'+lbl+'</span>'});
+  var types=[{k:'all',l:'All'}];
+  if(cfg.trackSleep)types.push({k:'sleep',l:'😴 Sleep'});
+  if(cfg.trackFeed)types.push({k:'feed',l:'🍼 Feed'});
+  if(cfg.trackDiaper)types.push({k:'diaper',l:'🧷 Diaper'});
+  if(cfg.trackPump)types.push({k:'pump',l:'🧴 Pump'});
+  types.forEach(function(f){h+='<span class="chip '+(typeF===f.k?'sel':'')+'" onclick="typeF=\''+f.k+'\';render()">'+f.l+'</span>'});
   h+='</div><div class="filters" style="margin-bottom:16px">';
-  ['all','today','yesterday'].forEach(function(f){var lbl={all:'All time',today:'Today',yesterday:'Yesterday'}[f];
+  ['all','today','yesterday','2daysago','3daysago'].forEach(function(f){var lbl={all:'All time',today:'Today',yesterday:'Yesterday','2daysago':'2 days ago','3daysago':'3 days ago'}[f];
     h+='<span class="chip '+(timeF===f?'sel':'')+'" onclick="timeF=\''+f+'\';render()">'+lbl+'</span>'});
   h+='</div>';
 
   var evs=allEv.slice();
   if(typeF!=='all')evs=evs.filter(function(e){return e.type===typeF});
-  var now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  if(timeF==='today'){var lastNightStart=new Date(today.getTime()-3*3600000);evs=evs.filter(function(e){return e.startTime>=lastNightStart})}
-  else if(timeF==='yesterday'){var nightBefore=new Date(today.getTime()-864e5-3*3600000);var lastNightStart=new Date(today.getTime()-3*3600000);evs=evs.filter(function(e){return e.startTime>=nightBefore&&e.startTime<lastNightStart})}
+  var now=new Date(),today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
+  if(timeF==='today'){evs=evs.filter(function(e){return e.startTime>=today6})}
+  else if(timeF==='yesterday'){var y6=new Date(today6.getTime()-864e5);evs=evs.filter(function(e){return e.startTime>=y6&&e.startTime<today6})}
+  else if(timeF==='2daysago'){var d2=new Date(today6.getTime()-2*864e5);var d1=new Date(today6.getTime()-864e5);evs=evs.filter(function(e){return e.startTime>=d2&&e.startTime<d1})}
+  else if(timeF==='3daysago'){var d3=new Date(today6.getTime()-3*864e5);var d2b=new Date(today6.getTime()-2*864e5);evs=evs.filter(function(e){return e.startTime>=d3&&e.startTime<d2b})}
+
+  var hasDur=typeF==='sleep'||typeF==='feed';
+  function sumDur(arr){return arr.reduce(function(s,e){return s+(e.duration||0)},0)}
 
   var grouped={};
   evs.forEach(function(e){var dk2=dayLabel(e.startTime);var pk=getPeriod(e.startTime);
@@ -245,34 +293,149 @@ function renderHistory(){
   var dayKeys=Object.keys(grouped);
   if(!dayKeys.length){h+='<div style="text-align:center;padding:40px;color:var(--muted)">No events</div>';document.getElementById('main').innerHTML=h;return}
 
-  var periods=Object.keys(ps).sort(function(a,b){return ps[b][0].startTime-ps[a][0].startTime});
   dayKeys.forEach(function(dk2){var ps=grouped[dk2];
+    var periods=Object.keys(ps).sort(function(a,b){return ps[b][0].startTime-ps[a][0].startTime});
     var total=Object.values(ps).reduce(function(s,a){return s+a.length},0);
-    h+='<div class="day-hdr">'+dk2+(typeF!=='all'?' ('+total+')':'')+'</div>';
+    var dayDur=hasDur?sumDur(Object.values(ps).reduce(function(a,b){return a.concat(b)},[])):'';
+    h+='<div class="day-hdr">'+dk2+(typeF!=='all'?' ('+total+(dayDur?' · '+fmtMin(dayDur):'')+')':'')+'</div>';
     periods.forEach(function(p){if(!ps[p])return;
-      h+='<div class="period-hdr">'+periodDisplay(p,ps[p])+(typeF!=='all'?' ('+ps[p].length+')':'')+'</div>';
+      var pDur=hasDur?sumDur(ps[p]):'';
+      h+='<div class="period-hdr">'+periodDisplay(p,ps[p])+(typeF!=='all'?' ('+ps[p].length+(pDur?' · '+fmtMin(pDur):'')+')':'')+'</div>';
       h+='<table class="ev-table">';
       ps[p].forEach(function(e){
         var time=pad(e.startTime.getHours())+':'+pad(e.startTime.getMinutes());
         var props=[];
         if(e.duration)props.push(fmtMin(e.duration));
         else if(e.endTime)props.push(fmt(e.endTime-e.startTime));
-        else if(e.type!=='diaper'&&!e.endTime&&!e.duration)props.push('ongoing');
+        else if((e.type==='sleep'||e.type==='feed')&&!e.endTime&&!e.duration)props.push('ongoing');
         if(e.side)props.push(e.side);
+        if(e.source==='pump')props.push('pumped milk');
+        if(e.mlFed)props.push(e.mlFed+'ml');
+        if(e.type==='pump'){if(e.ml)props.push(e.ml+'ml');if(e.storage)props.push(e.storage);if(e.spoiled)props.push('⚠️ spoiled')}
         h+='<tr><td class="td-time">'+time+'</td><td><div class="td-event">'+displayName(e)+'</div>';
         if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
         h+='</td><td class="td-acts"><button onclick="editEv(\''+e.id+'\')">✏️</button> <button class="del" onclick="delEv(\''+e.id+'\',\''+displayName(e).replace(/'/g,"\\'")+'\')">🗑</button></td></tr>'});
       h+='</table>'})});
   document.getElementById('main').innerHTML=h}
 
+// ==================== PUMP PAGE ====================
+function renderPump(){
+  var h='<div class="page-title">🧴 Pump & Stock</div>';
+  var pumps=allEv.filter(function(e){return e.type==='pump'});
+  var now=new Date();
+
+  // Calculate stock: available pumps (not spoiled, not expired, with remaining ml)
+  var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'&&e.linkedPumpId});
+  var usedMl={};feedsFromPump.forEach(function(f){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)});
+
+  var stock={room:[],fridge:[],freezer:[]};
+  pumps.forEach(function(p){
+    if(p.spoiled)return;
+    if(!p.ml)return;
+    var remaining=p.ml-(usedMl[p.id]||0);
+    if(remaining<=0)return;
+    var expired=p.expiresAt&&p.expiresAt<now;
+    if(expired)return;
+    var st=p.storage||'room';
+    if(stock[st])stock[st].push({id:p.id,ml:remaining,expires:p.expiresAt,pumpId:p.pumpId||makePumpId(p),startTime:p.startTime});
+  });
+
+  h+='<div class="stats-section"><div class="section-label">Stock Overview</div>';
+  var storages=[{k:'room',l:'🏠 Room Temp',c:'4h'},{k:'fridge',l:'❄️ Fridge',c:'4 days'},{k:'freezer',l:'🧊 Freezer',c:'6 months'}];
+  storages.forEach(function(s){
+    var items=stock[s.k];var totalMl=items.reduce(function(sum,i){return sum+i.ml},0);
+    h+='<div class="stock-card"><div class="sc-title">'+s.l+' (lasts '+s.c+')</div>';
+    if(!items.length){h+='<div class="sc-row">No milk available</div>'}
+    else{
+      h+='<div class="sc-row" style="font-weight:600;color:var(--text)">Total: '+totalMl+'ml ('+items.length+' portions)</div>';
+      items.forEach(function(i){
+        var expStr=i.expires?'expires '+shortDate(i.expires):'';
+        h+='<div class="sc-row">'+i.pumpId+' — '+i.ml+'ml'+(expStr?' · '+expStr:'')+'</div>';
+      });
+    }
+    h+='</div>';
+  });
+  h+='</div>';
+
+  // Pump history
+  h+='<div class="section-label">Pump History</div>';
+  if(!pumps.length){h+='<div style="text-align:center;padding:40px;color:var(--muted)">No pump events</div>'}
+  else{
+    h+='<table class="ev-table">';
+    pumps.forEach(function(e){
+      var time=pad(e.startTime.getHours())+':'+pad(e.startTime.getMinutes());
+      var date=pad(e.startTime.getDate())+'/'+pad(e.startTime.getMonth()+1);
+      var props=[];
+      if(e.ml)props.push(e.ml+'ml');
+      if(e.side)props.push(e.side);
+      if(e.storage)props.push(e.storage);
+      if(e.spoiled)props.push('⚠️ spoiled');
+      if(e.expiresAt){var exp=e.expiresAt<now?'expired':'exp '+shortDate(e.expiresAt);props.push(exp)}
+      var used=usedMl[e.id]||0;if(used>0)props.push('used: '+used+'ml');
+      h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">🧴 '+(e.pumpId||makePumpId(e))+'</div>';
+      if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
+      h+='</td><td class="td-acts">';
+      if(!e.spoiled)h+='<button onclick="markSpoiled(\''+e.id+'\')" title="Mark spoiled">🚫</button>';
+      h+='<button onclick="editEv(\''+e.id+'\')">✏️</button> <button class="del" onclick="delEv(\''+e.id+'\',\'Pump\')">🗑</button></td></tr>';
+    });
+    h+='</table>';
+  }
+  document.getElementById('main').innerHTML=h;
+}
+
+function markSpoiled(id){if(confirm('Mark this pump as spoiled?'))db.collection('families').doc(fid).collection('events').doc(id).update({spoiled:true})}
+
+// ==================== SETTINGS ====================
+function renderSettings(){
+  var h='<div class="page-title">⚙️ Settings</div>';
+  h+='<div class="stats-section"><div class="section-label">Track Actions</div>';
+  var actions=[{k:'trackSleep',l:'😴 Sleep',d:'Track sleep/wake events'},
+    {k:'trackFeed',l:'🍼 Feed',d:'Track feeding events'},
+    {k:'trackDiaper',l:'🧷 Diaper',d:'Track diaper changes'},
+    {k:'trackPump',l:'🧴 Pump',d:'Track breast milk pumping & stock'}];
+  actions.forEach(function(a){
+    h+='<div class="toggle-row"><div><div class="tr-label">'+a.l+'</div><div style="font-size:0.75rem;color:var(--muted)">'+a.d+'</div></div>';
+    h+='<div class="tr-toggle '+(cfg[a.k]?'on':'')+'" onclick="cfg.'+a.k+'=!cfg.'+a.k+';saveCfg()"></div></div>';
+  });
+  h+='</div>';
+  h+='<div class="stats-section"><div class="section-label">Family</div>';
+  h+='<div style="padding:10px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
+  h+='<div class="change-btn" onclick="disconnect()" style="font-size:0.85rem">Change family code</div>';
+  h+='</div>';
+  document.getElementById('main').innerHTML=h;
+}
+
 // ==================== PATTERNS ====================
+var tc='#a1a1aa',gc2='rgba(63,63,70,0.5)';
+function dcx(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
+function drawDaily(id,evs,cutoff,now,color){dcx(id);var d={};for(var t=new Date(cutoff);t<=now;t.setDate(t.getDate()+1))d[dkey(t)]=0;
+  evs.forEach(function(e){var k=dkey(e.startTime);if(d[k]!==undefined)d[k]+=(e.duration||0)});
+  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:Object.keys(d).map(sdate),datasets:[{data:Object.values(d).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:color,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{ticks:{color:tc,maxRotation:45},grid:{display:false}}}}})}
+function draw24h(id,evs){dcx(id);var bk=new Array(48).fill(0);var td=Math.max(new Set(evs.map(function(e){return dkey(e.startTime)})).size,1);
+  evs.forEach(function(e){if(!e.duration)return;var t=new Date(e.startTime);var end=new Date(t.getTime()+e.duration*60000);
+    while(t<end){bk[t.getHours()*2+(t.getMinutes()>=30?1:0)]++;t=new Date(t.getTime()+1800000)}});
+  var pct=bk.map(function(b){return Math.min(100,Math.round(b/td*100))});
+  var labels=[];for(var i=0;i<48;i++){var hh=Math.floor(i/2);labels.push(i%2===0?hh.toString().padStart(2,'0')+':00':'')}
+  var colors=pct.map(function(_,i){var hh=Math.floor(i/2);return(hh>=19||hh<7)?'rgba(99,102,241,0.7)':'rgba(251,191,36,0.7)'});
+  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:labels,datasets:[{data:pct,backgroundColor:colors,borderRadius:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{color:tc},grid:{color:gc2}},x:{ticks:{color:tc,maxRotation:0,autoSkipPadding:10},grid:{display:false}}}}})}
+function drawND(id,evs,cutoff,now){dcx(id);var dn={},dd={};for(var t=new Date(cutoff);t<=now;t.setDate(t.getDate()+1)){var k=dkey(t);dn[k]=0;dd[k]=0}
+  evs.forEach(function(e){if(!e.duration)return;var k=dkey(e.startTime);if(dn[k]===undefined)return;
+    var st=new Date(e.startTime),en=new Date(st.getTime()+e.duration*60000),tt=new Date(st);
+    while(tt<en){var hh=tt.getHours(),isN=hh>=19||hh<7;var nx=new Date(tt);if(hh>=7&&hh<19)nx.setHours(19,0,0,0);else if(hh>=19){nx.setDate(nx.getDate()+1);nx.setHours(7,0,0,0)}else nx.setHours(7,0,0,0);
+      if(nx>en)nx=en;var c=(nx-tt)/60000;if(isN)dn[k]+=c;else dd[k]+=c;tt=nx}});
+  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:Object.keys(dn).map(sdate),datasets:[
+    {label:'Night',data:Object.values(dn).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:'rgba(99,102,241,0.7)',borderRadius:2},
+    {label:'Day',data:Object.values(dd).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:'rgba(251,191,36,0.7)',borderRadius:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:tc}}},scales:{y:{stacked:true,beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{stacked:true,ticks:{color:tc,maxRotation:45},grid:{display:false}}}}})}
+
 function renderPatterns(){
   var h='<div class="page-title">Patterns & Analytics</div>';
   h+='<div class="filters" style="margin-bottom:16px">';
   [3,7,14,30,60].forEach(function(d){h+='<span class="chip '+(rd===d?'sel':'')+'" onclick="rd='+d+';render()">'+d+' days</span>'});
   h+='<span class="chip" onclick="exportCSV()" style="margin-left:auto">⬇ Export CSV</span>';
   h+='</div>';
-
   var now=new Date(),cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-rd);
   var filt=allEv.filter(function(e){return e.startTime>=cutoff});
   var sleeps=filt.filter(function(e){return e.type==='sleep'&&e.duration});
@@ -288,31 +451,50 @@ function renderPatterns(){
   var totalSided=leftF+rightF;
 
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">😴</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--sleep)">'+fmtMin(totalSleepMin/days)+'/day</div><div class="l">'+sleeps.length+' naps in '+rd+' days · avg '+fmtMin(sleeps.length?totalSleepMin/sleeps.length:0)+' each · '+(sleeps.length/days).toFixed(1)+'/day</div></div></div>';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">🍼</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--feed)">'+(feeds.length/days).toFixed(1)+' feeds/day</div><div class="l">avg '+fmtMin(feeds.length?totalFeedMin/feeds.length:0)+' each · '+fmtMin(totalFeedMin/days)+' total/day</div></div></div>';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">🧷</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--diaper)">'+((pees+poops)/days).toFixed(1)+' diapers/day</div><div class="l">💧'+(pees/days).toFixed(1)+'/day · 💩'+(poops/days).toFixed(1)+'/day</div></div></div>';
-  if(totalSided>0){var lp=Math.round(leftF/totalSided*100);
-    h+='<div class="stat" style="background:var(--card)"><div class="em">🤱</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--purple)">'+lp+'% / '+(100-lp)+'%</div><div class="l">Left: '+leftF+' · Right: '+rightF+' '+(Math.abs(lp-50)<15?'✓ Balanced':'⚠ Consider alternating')+'</div></div></div>'}
+  if(cfg.trackSleep)h+='<div class="stat" style="background:var(--card)"><div class="em">😴</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--sleep)">'+fmtMin(totalSleepMin/days)+'/day</div><div class="l">'+sleeps.length+' naps in '+rd+' days · avg '+fmtMin(sleeps.length?totalSleepMin/sleeps.length:0)+' each · '+(sleeps.length/days).toFixed(1)+'/day</div></div></div>';
+  if(cfg.trackFeed)h+='<div class="stat" style="background:var(--card)"><div class="em">🍼</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--feed)">'+(feeds.length/days).toFixed(1)+' feeds/day</div><div class="l">avg '+fmtMin(feeds.length?totalFeedMin/feeds.length:0)+' each · '+fmtMin(totalFeedMin/days)+' total/day</div></div></div>';
+  if(cfg.trackDiaper)h+='<div class="stat" style="background:var(--card)"><div class="em">🧷</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--diaper)">'+((pees+poops)/days).toFixed(1)+' diapers/day</div><div class="l">💧'+(pees/days).toFixed(1)+'/day · 💩'+(poops/days).toFixed(1)+'/day</div></div></div>';
+  if(totalSided>0){var lp2=Math.round(leftF/totalSided*100);
+    h+='<div class="stat" style="background:var(--card)"><div class="em">🤱</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--purple)">'+lp2+'% / '+(100-lp2)+'%</div><div class="l">Left: '+leftF+' · Right: '+rightF+' '+(Math.abs(lp2-50)<15?'✓ Balanced':'⚠ Consider alternating')+'</div></div></div>'}
   h+='</div>';
-  h+='</div>';
-  h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🕐 When Does Yuli Sleep?</div><canvas id="pc3" style="max-height:250px"></canvas></div>';
-  h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🌙 Night vs Day Sleep</div><canvas id="pc4" style="max-height:250px"></canvas></div>';
-
+  if(cfg.trackSleep){
+    h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🕐 When Does Yuli Sleep?</div><canvas id="pc3" style="max-height:250px"></canvas></div>';
+    h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🌙 Night vs Day Sleep</div><canvas id="pc4" style="max-height:250px"></canvas></div>';
+  }
   document.getElementById('main').innerHTML=h;
-  setTimeout(function(){draw24h('pc3',sleeps);drawND('pc4',sleeps,cutoff,now)},50);
+  if(cfg.trackSleep)setTimeout(function(){draw24h('pc3',sleeps);drawND('pc4',sleeps,cutoff,now)},50);
 }
 
-// ==================== LOG WIZARD ====================
-var wiz={step:0,type:'',when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0};
-function openLog(type){var ong=findOngoing();
-  if(ong&&ong.type===type){wiz={step:1,type:type,when:ong.startTime,durMin:null,ongoing:false,side:ong.side,pee:false,poop:false,isNow:false,endId:ong.id,endEv:ong};showWiz();return}
-  wiz={step:0,type:type,when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0};showWiz()}
-function openEnd(id,type){var ong=allEv.find(function(e){return e.id===id});if(!ong)return;wiz={step:1,type:type,when:ong.startTime,durMin:null,ongoing:false,side:ong.side,pee:false,poop:false,isNow:false,endId:id,endEv:ong};showWiz()}
+function exportCSV(){if(!allEv.length){alert('No data');return}var now=new Date(),cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-rd);
+  var filt=allEv.filter(function(e){return e.startTime>=cutoff}).sort(function(a,b){return a.startTime-b.startTime});
+  var csv='Date,Time,Type,Duration,Side,Pee,Poop,ML,Storage,Source\n';filt.forEach(function(e){var d=e.startTime;
+    csv+=dkey(d)+','+pad(d.getHours())+':'+pad(d.getMinutes())+','+e.type+','+(e.duration||'')+','+(e.side||'')+','+(e.pee||false)+','+(e.poop||false)+','+(e.ml||'')+','+(e.storage||'')+','+(e.source||'')+'\n'});
+  var blob=new Blob([csv],{type:'text/csv'});var url=URL.createObjectURL(blob);var a=document.createElement('a');
+  a.href=url;a.download='yuli-'+rd+'d.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)}
 
-function showWiz(){var em={sleep:'😴',feed:'🍼',diaper:'🧷'},nm={sleep:'Sleep',feed:'Feed',diaper:'Diaper Change'};
+// ==================== LOG WIZARD ====================
+var wiz={step:0,type:'',when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0,
+  source:null,linkedPumpId:null,mlFed:null,ml:null,storage:null};
+function resetWiz(type){wiz={step:0,type:type,when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0,
+  source:null,linkedPumpId:null,mlFed:null,ml:null,storage:null}}
+
+function openLog(type){var ong=findOngoing();
+  if(type==='pump'){resetWiz('pump');showWiz();return}
+  if(ong&&ong.type===type){resetWiz(type);wiz.step=1;wiz.when=ong.startTime;wiz.side=ong.side;wiz.endId=ong.id;wiz.endEv=ong;wiz.isNow=false;showWiz();return}
+  resetWiz(type);showWiz()}
+function openEnd(id,type){var ong=allEv.find(function(e){return e.id===id});if(!ong)return;resetWiz(type);wiz.step=1;wiz.when=ong.startTime;wiz.side=ong.side;wiz.endId=id;wiz.endEv=ong;wiz.isNow=false;showWiz()}
+
+function showWiz(){var em={sleep:'😴',feed:'🍼',diaper:'🧷',pump:'🧴'},nm={sleep:'Sleep',feed:'Feed',diaper:'Diaper Change',pump:'Pump'};
   var title=(wiz.endId?'End ':'Log ')+nm[wiz.type];
   var h='<div class="modal-bg" onclick="if(event.target===this)closeWiz()"><div class="modal"><h3>'+em[wiz.type]+' '+title+'</h3>';
-  if(wiz.step===0)h+=wizWhen();else if(wiz.step===1)h+=wizDur();else if(wiz.step===2)h+=wizDiaper();else if(wiz.step===3)h+=wizSide();
+  if(wiz.type==='pump'){h+=wizPump()}
+  else if(wiz.type==='feed'&&wiz.step===10){h+=wizFeedSource()}
+  else if(wiz.type==='feed'&&wiz.step===11){h+=wizPickPump()}
+  else if(wiz.type==='feed'&&wiz.step===12){h+=wizMlFed()}
+  else if(wiz.step===0)h+=wizWhen();
+  else if(wiz.step===1)h+=wizDur();
+  else if(wiz.step===2)h+=wizDiaper();
+  else if(wiz.step===3)h+=wizSide();
   h+='</div></div>';document.getElementById('modal-root').innerHTML=h}
 
 function wizWhen(){var h='<div class="step-label">When did this happen?</div><div class="opts">';
@@ -320,7 +502,7 @@ function wizWhen(){var h='<div class="step-label">When did this happen?</div><di
   h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="wizSetWhen(15)">15m ago</div>';
   h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="wizSetWhen(30)">30m ago</div>';
   h+='<div class="opt '+(wiz.whenMins===60?'sel':'')+'" onclick="wizSetWhen(60)">1h ago</div></div>';
-  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-c" onchange="wizSetCustom(this.value)"/></div>';
+  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-c" value="'+dtLocal(wiz.when)+'" onchange="wizSetCustom(this.value)"/></div>';
   if(wiz.isNow&&wiz.type!=='diaper')h+='<div class="step-sub" style="color:var(--feed)">Will be logged as ongoing</div>';
   var nl=wiz.isNow&&wiz.type!=='diaper'&&wiz.type!=='feed'?'Save':'Next';
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizNext()">'+nl+'</button></div>';return h}
@@ -346,26 +528,107 @@ function wizSide(){var h='<div class="step-label">Which side? (optional)</div><d
   h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">🤱 Right</div></div>';
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizSave()">Save</button></div>';return h}
 
+// Feed source: breast or pumped milk
+function wizFeedSource(){var h='<div class="step-label">Feeding from?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.source!=='pump'?'sel':'')+'" onclick="wiz.source=\'breast\';wiz.step=3;showWiz()">🤱 Breast</div>';
+  h+='<div class="opt '+(wiz.source==='pump'?'sel-p':'')+'" onclick="wiz.source=\'pump\';wiz.step=11;showWiz()">🧴 Pumped Milk</div></div>';
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button></div>';return h}
+
+// Pick pump from available stock
+function wizPickPump(){
+  var now=new Date();
+  var pumps=allEv.filter(function(e){return e.type==='pump'&&!e.spoiled&&e.ml&&(!e.expiresAt||e.expiresAt>now)});
+  // Calculate remaining ml
+  var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'&&e.linkedPumpId});
+  var usedMl={};feedsFromPump.forEach(function(f){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)});
+  pumps=pumps.filter(function(p){return(p.ml-(usedMl[p.id]||0))>0});
+
+  var h='<div class="step-label">Pick pump portion (optional)</div>';
+  if(!pumps.length){h+='<div class="step-sub">No available pump portions</div>'}
+  else{
+    h+='<div class="opts" style="flex-direction:column">';
+    pumps.forEach(function(p){
+      var rem=p.ml-(usedMl[p.id]||0);
+      var pid=p.pumpId||makePumpId(p);
+      h+='<div class="opt '+(wiz.linkedPumpId===p.id?'sel-p':'')+'" onclick="wiz.linkedPumpId=\''+p.id+'\';wiz.mlFed='+rem+';showWiz()" style="width:100%">'+pid+' — '+rem+'ml remaining</div>';
+    });
+    h+='</div>';
+  }
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wiz.step=12;showWiz()">Next</button></div>';return h}
+
+function wizMlFed(){var h='<div class="step-label">How much was fed? (ml)</div>';
+  h+='<div class="custom-row"><input type="number" id="wiz-ml-fed" placeholder="'+(wiz.mlFed||'optional')+'" value="'+(wiz.mlFed||'')+'"/></div>';
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="var v=document.getElementById(\'wiz-ml-fed\').value;wiz.mlFed=v?parseInt(v):null;wizSave()">Save</button></div>';return h}
+
+// Pump wizard — single step
+function wizPump(){
+  var h='<div class="step-label">When was this pumped?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.isNow?'sel':'')+'" onclick="wiz.when=new Date();wiz.isNow=true;showWiz()">Now</div>';
+  h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="wizSetWhen(15)">15m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="wizSetWhen(30)">30m ago</div></div>';
+  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-pump-time" value="'+dtLocal(wiz.when)+'" onchange="wizSetCustom(this.value)"/></div>';
+  h+='<div class="custom-row"><label>Milliliters (optional)</label><input type="number" id="wiz-pump-ml" placeholder="e.g. 120" value="'+(wiz.ml||'')+'"/></div>';
+  h+='<div class="step-label">Side (optional)</div><div class="opts">';
+  h+='<div class="opt '+(wiz.side==='left'?'sel':'')+'" onclick="wiz.side=wiz.side===\'left\'?null:\'left\';showWiz()">Left</div>';
+  h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">Right</div>';
+  h+='<div class="opt '+(wiz.side==='both'?'sel':'')+'" onclick="wiz.side=wiz.side===\'both\'?null:\'both\';showWiz()">Both</div></div>';
+  h+='<div class="step-label">Stored at (optional)</div><div class="opts">';
+  h+='<div class="opt '+(wiz.storage==='room'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'room\'?null:\'room\';showWiz()">🏠 Room</div>';
+  h+='<div class="opt '+(wiz.storage==='fridge'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'fridge\'?null:\'fridge\';showWiz()">❄️ Fridge</div>';
+  h+='<div class="opt '+(wiz.storage==='freezer'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'freezer\'?null:\'freezer\';showWiz()">🧊 Freezer</div></div>';
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizSavePump()">Save</button></div>';return h}
+
+function wizSavePump(){
+  var mlInput=document.getElementById('wiz-pump-ml');
+  wiz.ml=mlInput&&mlInput.value?parseInt(mlInput.value):null;
+  var exp=null;
+  if(wiz.storage){
+    var ms=wiz.when.getTime();
+    if(wiz.storage==='room')exp=new Date(ms+4*3600000);
+    else if(wiz.storage==='fridge')exp=new Date(ms+4*24*3600000);
+    else if(wiz.storage==='freezer')exp=new Date(ms+6*30*24*3600000);
+  }
+  var pid=makePumpIdFromWiz();
+  var data={type:'pump',startTime:firebase.firestore.Timestamp.fromDate(wiz.when),pee:false,poop:false,createdBy:'web',createdAt:firebase.firestore.Timestamp.now(),pumpId:pid};
+  if(wiz.ml)data.ml=wiz.ml;
+  if(wiz.side)data.side=wiz.side;
+  if(wiz.storage)data.storage=wiz.storage;
+  if(exp)data.expiresAt=firebase.firestore.Timestamp.fromDate(exp);
+  data.spoiled=false;
+  db.collection('families').doc(fid).collection('events').add(data).then(function(ref){
+    closeWiz();showSnack('🧴 Pump logged'+(wiz.ml?' · '+wiz.ml+'ml':''),'undo',ref.id)});
+}
+
 function wizSetWhen(m){wiz.when=new Date(Date.now()-m*60000);wiz.isNow=m===0;wiz.whenMins=m;showWiz()}
 function wizSetCustom(v){if(!v)return;wiz.when=new Date(v);wiz.isNow=false;showWiz()}
 function wizNext(){
   if(wiz.step===0){if(wiz.type==='diaper'){wiz.step=2;showWiz();return}
-    if(wiz.isNow){wiz.ongoing=true;wiz.durMin=null;if(wiz.type==='feed'){wiz.step=3;showWiz();return}wizSave();return}
+    if(wiz.type==='feed'&&wiz.isNow){wiz.ongoing=true;wiz.durMin=null;wiz.step=10;showWiz();return}
+    if(wiz.isNow){wiz.ongoing=true;wiz.durMin=null;wizSave();return}
     wiz.step=1;showWiz()}
-  else if(wiz.step===1){if(!wiz.ongoing&&!wiz.durMin){alert('Pick a duration');return}if(wiz.type==='feed'){wiz.step=3;showWiz();return}wizSave()}
+  else if(wiz.step===1){if(!wiz.ongoing&&!wiz.durMin){alert('Pick a duration');return}
+    if(wiz.type==='feed'&&!wiz.endId){wiz.step=10;showWiz();return}
+    if(wiz.type==='feed'&&wiz.endId&&!wiz.side){wiz.step=3;showWiz();return}
+    wizSave()}
   else if(wiz.step===2){if(!wiz.pee&&!wiz.poop){alert('Select at least one');return}wizSave()}}
 
 function wizSave(){
   if(wiz.endId){var dur=wiz.durMin||Math.round((Date.now()-wiz.when.getTime())/60000);
-    db.collection('families').doc(fid).collection('events').doc(wiz.endId).update({endTime:firebase.firestore.Timestamp.fromDate(new Date()),duration:dur}).then(function(){
+    var upd={endTime:firebase.firestore.Timestamp.fromDate(new Date()),duration:dur};
+    if(wiz.side)upd.side=wiz.side;
+    db.collection('families').doc(fid).collection('events').doc(wiz.endId).update(upd).then(function(){
       closeWiz();var nm=wiz.type==='sleep'?'😴 Sleep':'🍼 Feed';showSnack(nm+' ended · '+fmtMin(dur))});return}
   var data={type:wiz.type,startTime:firebase.firestore.Timestamp.fromDate(wiz.when),pee:wiz.pee,poop:wiz.poop,createdBy:'web',createdAt:firebase.firestore.Timestamp.now()};
   if(wiz.side)data.side=wiz.side;
+  if(wiz.source)data.source=wiz.source;
+  if(wiz.linkedPumpId)data.linkedPumpId=wiz.linkedPumpId;
+  if(wiz.mlFed)data.mlFed=wiz.mlFed;
   if(wiz.durMin){data.duration=wiz.durMin;data.endTime=firebase.firestore.Timestamp.fromDate(new Date(wiz.when.getTime()+wiz.durMin*60000))}
   db.collection('families').doc(fid).collection('events').add(data).then(function(ref){
     closeWiz();var t=pad(wiz.when.getHours())+':'+pad(wiz.when.getMinutes());
     var msg=displayName2(wiz.type,wiz.pee,wiz.poop)+' at '+t;
     if(wiz.durMin)msg+=' · '+fmtMin(wiz.durMin);if(wiz.side)msg+=' · '+wiz.side;if(wiz.ongoing)msg+=' (ongoing)';
+    if(wiz.source==='pump')msg+=' · pumped milk';if(wiz.mlFed)msg+=' · '+wiz.mlFed+'ml';
     showSnack(msg,'undo',ref.id)})}
 
 function closeWiz(){document.getElementById('modal-root').innerHTML=''}
@@ -379,66 +642,61 @@ function delEv(id,name){if(confirm('Delete '+name+'?'))db.collection('families')
 function editEv(id){var ev=allEv.find(function(e){return e.id===id});if(!ev)return;
   var h='<div class="modal-bg" onclick="if(event.target===this)closeWiz()"><div class="modal"><h3>Edit '+displayName(ev)+'</h3>';
   h+='<div class="custom-row"><label>Start time</label><input type="datetime-local" id="ed-st" value="'+dtLocal(ev.startTime)+'"/></div>';
-  if(ev.type!=='diaper')h+='<div class="custom-row"><label>Duration (minutes)</label><input type="number" id="ed-dur" value="'+(ev.duration||'')+'" placeholder="Empty = ongoing"/></div>';
+  if(ev.type!=='diaper'&&ev.type!=='pump')h+='<div class="custom-row"><label>Duration (minutes)</label><input type="number" id="ed-dur" value="'+(ev.duration||'')+'" placeholder="Empty = ongoing"/></div>';
   if(ev.type==='feed'){h+='<div class="step-label">Side</div><div class="opts">';
     h+='<div class="opt '+(ev.side==='left'?'sel':'')+'" id="ed-sl" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-sr\').classList.remove(\'sel\')">Left</div>';
     h+='<div class="opt '+(ev.side==='right'?'sel':'')+'" id="ed-sr" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-sl\').classList.remove(\'sel\')">Right</div></div>'}
   if(ev.type==='diaper'){h+='<div class="step-label">Type</div><div class="opts">';
     h+='<div class="opt '+(ev.pee?'sel':'')+'" id="ed-pee" onclick="this.classList.toggle(\'sel\')">💧 Pee</div>';
     h+='<div class="opt '+(ev.poop?'sel':'')+'" id="ed-poop" onclick="this.classList.toggle(\'sel\')">💩 Poop</div></div>'}
+  if(ev.type==='pump'){
+    h+='<div class="custom-row"><label>Milliliters</label><input type="number" id="ed-ml" value="'+(ev.ml||'')+'"/></div>';
+    h+='<div class="step-label">Side</div><div class="opts">';
+    h+='<div class="opt '+(ev.side==='left'?'sel':'')+'" id="ed-psl" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-psr\').classList.remove(\'sel\');document.getElementById(\'ed-psb\').classList.remove(\'sel\')">Left</div>';
+    h+='<div class="opt '+(ev.side==='right'?'sel':'')+'" id="ed-psr" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-psl\').classList.remove(\'sel\');document.getElementById(\'ed-psb\').classList.remove(\'sel\')">Right</div>';
+    h+='<div class="opt '+(ev.side==='both'?'sel':'')+'" id="ed-psb" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-psl\').classList.remove(\'sel\');document.getElementById(\'ed-psr\').classList.remove(\'sel\')">Both</div></div>';
+    h+='<div class="step-label">Storage</div><div class="opts">';
+    h+='<div class="opt '+(ev.storage==='room'?'sel':'')+'" id="ed-str" onclick="pickStorage(\'room\')">🏠 Room</div>';
+    h+='<div class="opt '+(ev.storage==='fridge'?'sel':'')+'" id="ed-stf" onclick="pickStorage(\'fridge\')">❄️ Fridge</div>';
+    h+='<div class="opt '+(ev.storage==='freezer'?'sel':'')+'" id="ed-stz" onclick="pickStorage(\'freezer\')">🧊 Freezer</div></div>';
+  }
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="saveEdit(\''+id+'\',\''+ev.type+'\')">Save</button></div></div></div>';
   document.getElementById('modal-root').innerHTML=h}
 
+function pickStorage(s){['ed-str','ed-stf','ed-stz'].forEach(function(id){var el=document.getElementById(id);if(el)el.classList.remove('sel')});
+  var map={room:'ed-str',fridge:'ed-stf',freezer:'ed-stz'};var el=document.getElementById(map[s]);if(el)el.classList.add('sel')}
+
 function saveEdit(id,type){var st=new Date(document.getElementById('ed-st').value);
   var upd={startTime:firebase.firestore.Timestamp.fromDate(st)};
-  if(type!=='diaper'){var de=document.getElementById('ed-dur');var dur=de&&de.value?parseInt(de.value):null;
+  if(type!=='diaper'&&type!=='pump'){var de=document.getElementById('ed-dur');var dur=de&&de.value?parseInt(de.value):null;
     if(dur){upd.duration=dur;upd.endTime=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+dur*60000))}
     else{upd.duration=firebase.firestore.FieldValue.delete();upd.endTime=firebase.firestore.FieldValue.delete()}}
   if(type==='feed'){var sl=document.getElementById('ed-sl'),sr=document.getElementById('ed-sr');
     if(sl&&sl.classList.contains('sel'))upd.side='left';else if(sr&&sr.classList.contains('sel'))upd.side='right';
     else upd.side=firebase.firestore.FieldValue.delete()}
   if(type==='diaper'){upd.pee=document.getElementById('ed-pee').classList.contains('sel');upd.poop=document.getElementById('ed-poop').classList.contains('sel')}
+  if(type==='pump'){
+    var mlEl=document.getElementById('ed-ml');upd.ml=mlEl&&mlEl.value?parseInt(mlEl.value):null;
+    var psl=document.getElementById('ed-psl'),psr=document.getElementById('ed-psr'),psb=document.getElementById('ed-psb');
+    if(psl&&psl.classList.contains('sel'))upd.side='left';else if(psr&&psr.classList.contains('sel'))upd.side='right';
+    else if(psb&&psb.classList.contains('sel'))upd.side='both';else upd.side=firebase.firestore.FieldValue.delete();
+    var str=document.getElementById('ed-str'),stf=document.getElementById('ed-stf'),stz=document.getElementById('ed-stz');
+    if(str&&str.classList.contains('sel')){upd.storage='room';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+4*3600000))}
+    else if(stf&&stf.classList.contains('sel')){upd.storage='fridge';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+4*24*3600000))}
+    else if(stz&&stz.classList.contains('sel')){upd.storage='freezer';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+6*30*24*3600000))}
+    upd.pumpId=makePumpIdFromData(st,upd.ml,upd.storage);
+  }
   db.collection('families').doc(fid).collection('events').doc(id).update(upd).then(function(){closeWiz()})}
-
-// ==================== CHARTS ====================
-var tc='#a1a1aa',gc2='rgba(63,63,70,0.5)';
-function dcx(id){if(charts[id]){charts[id].destroy();delete charts[id]}}
-function drawDaily(id,evs,cutoff,now,color){dcx(id);var d={};for(var t=new Date(cutoff);t<=now;t.setDate(t.getDate()+1))d[dkey(t)]=0;
-  evs.forEach(function(e){var k=dkey(e.startTime);if(d[k]!==undefined)d[k]+=(e.duration||0)});
-  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:Object.keys(d).map(sdate),datasets:[{data:Object.values(d).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:color,borderRadius:4}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{ticks:{color:tc,maxRotation:45},grid:{display:false}}}}})}
-function draw24h(id,evs){dcx(id);var bk=new Array(48).fill(0);var td=Math.max(new Set(evs.map(function(e){return dkey(e.startTime)})).size,1);
-  evs.forEach(function(e){if(!e.duration)return;var t=new Date(e.startTime);var end=new Date(t.getTime()+e.duration*60000);
-    while(t<end){bk[t.getHours()*2+(t.getMinutes()>=30?1:0)]++;t=new Date(t.getTime()+1800000)}});
-  var pct=bk.map(function(b){return Math.min(100,Math.round(b/td*100))});
-  var labels=[];for(var i=0;i<48;i++){var hh=Math.floor(i/2);labels.push(i%2===0?hh.toString().padStart(2,'0')+':00':'')}
-  var colors=pct.map(function(_,i){var hh=Math.floor(i/2);return(hh>=19||hh<7)?'rgba(99,102,241,0.7)':'rgba(251,191,36,0.7)'});
-  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:labels,datasets:[{data:pct,backgroundColor:colors,borderRadius:2}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{color:tc},grid:{color:gc2}},x:{ticks:{color:tc,maxRotation:0,autoSkipPadding:10},grid:{display:false}}}}})}
-function drawND(id,evs,cutoff,now){dcx(id);var dn={},dd={};for(var t=new Date(cutoff);t<=now;t.setDate(t.getDate()+1)){var k=dkey(t);dn[k]=0;dd[k]=0}
-  evs.forEach(function(e){if(!e.duration)return;var k=dkey(e.startTime);if(dn[k]===undefined)return;
-    var st=new Date(e.startTime),en=new Date(st.getTime()+e.duration*60000),tt=new Date(st);
-    while(tt<en){var hh=tt.getHours(),isN=hh>=19||hh<7;var nx=new Date(tt);if(hh>=7&&hh<19)nx.setHours(19,0,0,0);else if(hh>=19){nx.setDate(nx.getDate()+1);nx.setHours(7,0,0,0)}else nx.setHours(7,0,0,0);
-      if(nx>en)nx=en;var c=(nx-tt)/60000;if(isN)dn[k]+=c;else dd[k]+=c;tt=nx}});
-  charts[id]=new Chart(document.getElementById(id),{type:'bar',data:{labels:Object.keys(dn).map(sdate),datasets:[
-    {label:'Night',data:Object.values(dn).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:'rgba(99,102,241,0.7)',borderRadius:2},
-    {label:'Day',data:Object.values(dd).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:'rgba(251,191,36,0.7)',borderRadius:2}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:tc}}},scales:{y:{stacked:true,beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{stacked:true,ticks:{color:tc,maxRotation:45},grid:{display:false}}}}})}
-
-function exportCSV(){if(!allEv.length){alert('No data');return}var now=new Date(),cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-rd);
-  var filt=allEv.filter(function(e){return e.startTime>=cutoff}).sort(function(a,b){return a.startTime-b.startTime});
-  var csv='Date,Time,Type,Duration,Side,Pee,Poop\n';filt.forEach(function(e){var d=e.startTime;
-    csv+=dkey(d)+','+pad(d.getHours())+':'+pad(d.getMinutes())+','+e.type+','+(e.duration||'')+','+(e.side||'')+','+(e.pee||false)+','+(e.poop||false)+'\n'});
-  var blob=new Blob([csv],{type:'text/csv'});var url=URL.createObjectURL(blob);var a=document.createElement('a');
-  a.href=url;a.download='yuli-'+rd+'d.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)}
 
 // ==================== HELPERS ====================
 function findOngoing(){return allEv.find(function(e){return(e.type==='sleep'||e.type==='feed')&&!e.duration&&!e.endTime})||null}
 function lastOf(type){return allEv.find(function(e){return e.type===type})||null}
-function displayName(e){if(e.type==='sleep')return '😴 Sleep';if(e.type==='feed')return '🍼 Feed';
-  if(e.type==='diaper'){if(e.pee&&e.poop)return '🧷 Pee + Poop';if(e.poop)return '💩 Poop';if(e.pee)return '💧 Pee';return '🧷 Diaper'}return e.type}
+function displayName(e){if(e.type==='sleep')return '😴 Sleep';if(e.type==='feed')return e.source==='pump'?'🧴 Pumped Feed':'🍼 Feed';
+  if(e.type==='diaper'){if(e.pee&&e.poop)return '🧷 Pee + Poop';if(e.poop)return '💩 Poop';if(e.pee)return '💧 Pee';return '🧷 Diaper'}
+  if(e.type==='pump')return '🧴 Pump';return e.type}
 function displayName2(type,pee,poop){if(type==='sleep')return '😴 Sleep';if(type==='feed')return '🍼 Feed';
-  if(type==='diaper'){if(pee&&poop)return '🧷 Pee + Poop';if(poop)return '💩 Poop';if(pee)return '💧 Pee';return '🧷 Diaper'}return type}
+  if(type==='diaper'){if(pee&&poop)return '🧷 Pee + Poop';if(poop)return '💩 Poop';if(pee)return '💧 Pee';return '🧷 Diaper'}
+  if(type==='pump')return '🧴 Pump';return type}
 function fmt(ms){if(!ms||ms<=0)return '--';var m=Math.round(ms/60000);if(m<60)return m+'m';var h=Math.floor(m/60),r=m%60;return r?h+'h '+r+'m':h+'h'}
 function fmtMin(v){if(!v||v<=0)return '--';var m=Math.round(v);if(m<60)return m+'m';var h=Math.floor(m/60),r=m%60;return r?h+'h '+r+'m':h+'h'}
 function pad(n){return n<10?'0'+n:''+n}
@@ -448,11 +706,17 @@ function dayLabel(d){var ed=effectiveDay(d);var now=new Date(),today=new Date(no
   if(dd2.getTime()===today.getTime())return 'Today';if(dd2.getTime()===today.getTime()-864e5)return 'Yesterday';
   var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return days[ed.getDay()]+', '+months[ed.getMonth()]+' '+ed.getDate()}
-function getPeriod(d){var h=d.getHours();if(h>=6&&h<12)return 'morning';if(h>=12&&h<17)return 'afternoon';if(h>=17&&h<21)return 'evening';return 'night'}
-function periodDisplay(key,evs){var em={morning:'🌅',afternoon:'☀️',evening:'🌇',night:'🌙'};var nm={morning:'Morning',afternoon:'Afternoon',evening:'Evening',night:'Night'};if(!evs.length)return em[key]+' '+nm[key];if(key==='night'){var ed=effectiveDay(evs[0].startTime);var nd=new Date(ed.getTime()+86400000);return em[key]+' '+nm[key]+' ('+pad(ed.getDate())+'/'+pad(ed.getMonth()+1)+'-'+pad(nd.getDate())+'/'+pad(nd.getMonth()+1)+')'}var dd=pad(evs[0].startTime.getDate())+'/'+pad(evs[0].startTime.getMonth()+1);return em[key]+' '+nm[key]+' ('+dd+')'}
+function getPeriod(d){var h=d.getHours();if(h>=0&&h<6)return 'night';if(h>=6&&h<12)return 'morning';if(h>=12&&h<18)return 'afternoon';return 'evening'}
+function periodDisplay(key){var em={night:'🌙',morning:'🌅',afternoon:'☀️',evening:'🌇'};var nm={night:'Night (00-06)',morning:'Morning (06-12)',afternoon:'Afternoon (12-18)',evening:'Evening (18-00)'};return em[key]+' '+nm[key]}
 function dkey(d){var t=d instanceof Date?d:new Date(d);return t.getFullYear()+'-'+(t.getMonth()+1).toString().padStart(2,'0')+'-'+t.getDate().toString().padStart(2,'0')}
 function sdate(k){var p=k.split('-');var mo=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return mo[+p[1]]+' '+(+p[2])}
 function dtLocal(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes())}
+function shortDate(d){return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
+function makePumpId(e){var d=e.startTime;var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()]+' '+d.getDate()+' '+pad(d.getHours())+':'+pad(d.getMinutes())+(e.ml?' · '+e.ml+'ml':'')+(e.storage?' · '+e.storage:'')}
+function makePumpIdFromWiz(){return makePumpIdFromData(wiz.when,wiz.ml,wiz.storage)}
+function makePumpIdFromData(d,ml,storage){var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()]+' '+d.getDate()+' '+pad(d.getHours())+':'+pad(d.getMinutes())+(ml?' · '+ml+'ml':'')+(storage?' · '+storage:'')}
 </script>
 </body>
 </html>

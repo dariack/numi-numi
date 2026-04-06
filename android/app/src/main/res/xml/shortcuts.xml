@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="log_poop"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_poop"
+        android:shortcutLongLabel="@string/shortcut_poop_long"
+        android:icon="@drawable/ic_shortcut_poop">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.example.baby_tracker"
+            android:targetClass="com.example.baby_tracker.MainActivity"
+            android:data="yuliTracker://logPoop" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="start_feed"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_feed"
+        android:shortcutLongLabel="@string/shortcut_feed_long"
+        android:icon="@drawable/ic_shortcut_feed">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.example.baby_tracker"
+            android:targetClass="com.example.baby_tracker.MainActivity"
+            android:data="yuliTracker://toggleFeed" />
+    </shortcut>
+</shortcuts>

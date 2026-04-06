@@ -27,16 +27,18 @@ class FirestoreService {
   }
 
   /// Complete an ongoing event (baby woke up / stopped feeding)
-  Future<void> completeOngoing(String eventId, {int? durationMinutes}) async {
+  Future<void> completeOngoing(String eventId, {int? durationMinutes, String? side}) async {
     final now = DateTime.now();
     final doc = await _ref.doc(eventId).get();
     if (!doc.exists) return;
     final event = BabyEvent.fromFirestore(doc);
     final dur = durationMinutes ?? now.difference(event.startTime).inMinutes;
-    await _ref.doc(eventId).update({
+    final update = <String, dynamic>{
       'endTime': Timestamp.fromDate(now),
       'duration': dur,
-    });
+    };
+    if (side != null) update['side'] = side;
+    await _ref.doc(eventId).update(update);
   }
 
   // ===== READ =====
@@ -76,6 +78,18 @@ class FirestoreService {
     if (snap.docs.isEmpty) return null;
     try { return BabyEvent.fromFirestore(snap.docs.first); }
     catch (_) { return null; }
+  }
+
+  Future<List<BabyEvent>> getRecentFeeds(int limit) async {
+    final snap = await _ref
+        .where('type', isEqualTo: 'feed')
+        .orderBy('startTime', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>()
+        .toList();
   }
 
   Future<BabyEvent?> getOngoing() async {
@@ -173,12 +187,32 @@ class FirestoreService {
     final sleep3dSnap = countResults[2];
     final feed3dSnap = countResults[3];
 
+    // Avg duration (3-day) for sleep and feed
+    final sleep3dEvents = sleep3dSnap.docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>()
+        .where((e) => e.durationMinutes != null)
+        .toList();
+    final sleepAvgDur = sleep3dEvents.isNotEmpty
+        ? sleep3dEvents.map((e) => e.durationMinutes!).reduce((a, b) => a + b) / sleep3dEvents.length
+        : null;
+    final feed3dEvents = feed3dSnap.docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>()
+        .where((e) => e.durationMinutes != null)
+        .toList();
+    final feedAvgDur = feed3dEvents.isNotEmpty
+        ? feed3dEvents.map((e) => e.durationMinutes!).reduce((a, b) => a + b) / feed3dEvents.length
+        : null;
+
     return {
       'lastSleep': lastSleep,
       'sleeps24h': sleeps24h,
       'feeds24h': feeds24h,
       'sleepsAvg3d': sleep3dSnap.docs.length / 3.0,
       'feedsAvg3d': feed3dSnap.docs.length / 3.0,
+      'sleepAvgDur3d': sleepAvgDur,
+      'feedAvgDur3d': feedAvgDur,
       'lastFeed': lastFeed,
       'lastDiaper': lastDiaper,
       'ongoing': ongoing,

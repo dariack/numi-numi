@@ -13,48 +13,44 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   String _filter = 'all';
-  String _timeFilter = 'all'; // all, today, yesterday
+  String _timeFilter = 'all'; // all, today, yesterday, 2daysago, 3daysago
 
   List<BabyEvent> _applyTimeFilter(List<BabyEvent> events) {
     if (_timeFilter == 'all') return events;
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
+    final today6 = DateTime(now.year, now.month, now.day, 6);
     if (_timeFilter == 'today') {
-      // Today includes last night (yesterday 21:00+) through now
-      final lastNightStart = yesterday.add(const Duration(hours: 21));
-      return events.where((e) => e.startTime.isAfter(lastNightStart)).toList();
+      return events.where((e) => !e.startTime.isBefore(today6)).toList();
     }
     if (_timeFilter == 'yesterday') {
-      // Yesterday: from the night before (day-before-yesterday 21:00) to yesterday 21:00
-      final nightBefore = yesterday.subtract(const Duration(days: 1)).add(const Duration(hours: 21));
-      final lastNightStart = yesterday.add(const Duration(hours: 21));
-      return events.where((e) => e.startTime.isAfter(nightBefore) && e.startTime.isBefore(lastNightStart)).toList();
+      final y6 = today6.subtract(const Duration(days: 1));
+      return events.where((e) => !e.startTime.isBefore(y6) && e.startTime.isBefore(today6)).toList();
+    }
+    if (_timeFilter == '2daysago') {
+      final d2 = today6.subtract(const Duration(days: 2));
+      final d1 = today6.subtract(const Duration(days: 1));
+      return events.where((e) => !e.startTime.isBefore(d2) && e.startTime.isBefore(d1)).toList();
+    }
+    if (_timeFilter == '3daysago') {
+      final d3 = today6.subtract(const Duration(days: 3));
+      final d2 = today6.subtract(const Duration(days: 2));
+      return events.where((e) => !e.startTime.isBefore(d3) && e.startTime.isBefore(d2)).toList();
     }
     return events;
   }
 
   String _getDayPeriod(DateTime dt) {
     final h = dt.hour;
+    if (h >= 0 && h < 6) return 'night';
     if (h >= 6 && h < 12) return 'morning';
-    if (h >= 12 && h < 17) return 'afternoon';
-    if (h >= 17 && h < 21) return 'evening';
-    return 'night';
+    if (h >= 12 && h < 18) return 'afternoon';
+    return 'evening';
   }
 
   String _periodDisplay(String key, List<BabyEvent> events) {
-    final emojis = {'morning': '🌅', 'afternoon': '☀️', 'evening': '🌇', 'night': '🌙'};
-    final names = {'morning': 'Morning', 'afternoon': 'Afternoon', 'evening': 'Evening', 'night': 'Night'};
-    if (events.isEmpty) return '${emojis[key]} ${names[key]}';
-    if (key == 'night') {
-      final effective = _effectiveDay(events.first.startTime);
-      final nextDay = effective.add(const Duration(days: 1));
-      final d1 = '${effective.day.toString().padLeft(2, '0')}/${effective.month.toString().padLeft(2, '0')}';
-      final d2 = '${nextDay.day.toString().padLeft(2, '0')}/${nextDay.month.toString().padLeft(2, '0')}';
-      return '${emojis[key]} ${names[key]} ($d1-$d2)';
-    }
-    final date = '${events.first.startTime.day.toString().padLeft(2, '0')}/${events.first.startTime.month.toString().padLeft(2, '0')}';
-    return '${emojis[key]} ${names[key]} ($date)';
+    const emojis = {'night': '🌙', 'morning': '🌅', 'afternoon': '☀️', 'evening': '🌇'};
+    const names = {'night': 'Night (00-06)', 'morning': 'Morning (06-12)', 'afternoon': 'Afternoon (12-18)', 'evening': 'Evening (18-00)'};
+    return '${emojis[key]} ${names[key]}';
   }
 
   @override
@@ -85,6 +81,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   _Chip(label: 'Today', selected: _timeFilter == 'today', onTap: () => setState(() => _timeFilter = 'today')),
                   const SizedBox(width: 6),
                   _Chip(label: 'Yesterday', selected: _timeFilter == 'yesterday', onTap: () => setState(() => _timeFilter = 'yesterday')),
+                  const SizedBox(width: 6),
+                  _Chip(label: '2 days ago', selected: _timeFilter == '2daysago', onTap: () => setState(() => _timeFilter = '2daysago')),
+                  const SizedBox(width: 6),
+                  _Chip(label: '3 days ago', selected: _timeFilter == '3daysago', onTap: () => setState(() => _timeFilter = '3daysago')),
                 ])),
               ],
             ),
@@ -122,31 +122,48 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 grouped[dayKey]![period]!.add(e);
               }
 
+              final hasDur = _filter == 'sleep' || _filter == 'feed';
+              String _fmtDurMin(int min) {
+                if (min <= 0) return '';
+                if (min < 60) return '${min}m';
+                final h = min ~/ 60;
+                final m = min % 60;
+                return m > 0 ? '${h}h ${m}m' : '${h}h';
+              }
+              int _sumDur(List<BabyEvent> evs) => evs.fold(0, (s, e) => s + (e.durationMinutes ?? 0));
+
               return ListView.builder(
                 padding: const EdgeInsets.only(bottom: 20),
                 itemCount: grouped.length,
                 itemBuilder: (context, i) {
                   final dayKey = grouped.keys.elementAt(i);
                   final periods = grouped[dayKey]!;
+                  final dayCount = periods.values.fold<int>(0, (s, l) => s + l.length);
+                  final dayDur = hasDur ? _sumDur(periods.values.expand((l) => l).toList()) : 0;
+                  final dayExtra = hasDur && dayDur > 0 ? ' · ${_fmtDurMin(dayDur)}' : '';
                   return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     // Day header
                     Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-                      child: Text(_filter != 'all' ? '$dayKey (${periods.values.fold<int>(0, (s, l) => s + l.length)})' : dayKey, style: theme.textTheme.titleSmall?.copyWith(
+                      child: Text(_filter != 'all' ? '$dayKey ($dayCount$dayExtra)' : dayKey, style: theme.textTheme.titleSmall?.copyWith(
                         color: theme.colorScheme.primary, fontWeight: FontWeight.bold))),
                     // Periods
                     for (final period in (periods.keys.toList()..sort((a, b) {
-                        // Sort by the most recent event time in each period, descending
                         final aTime = periods[a]!.first.startTime;
                         final bTime = periods[b]!.first.startTime;
                         return bTime.compareTo(aTime);
                       })))
                       ...[
                         Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                          child: Text(_filter != 'all'
-                            ? '${_periodDisplay(period, periods[period]!)} (${periods[period]!.length})'
-                            : _periodDisplay(period, periods[period]!),
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade500))),
+                          child: Builder(builder: (_) {
+                            final pEvs = periods[period]!;
+                            final pDur = hasDur ? _sumDur(pEvs) : 0;
+                            final pExtra = hasDur && pDur > 0 ? ' · ${_fmtDurMin(pDur)}' : '';
+                            return Text(_filter != 'all'
+                              ? '${_periodDisplay(period, pEvs)} (${pEvs.length}$pExtra)'
+                              : _periodDisplay(period, pEvs),
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade500));
+                          })),
                         ...periods[period]!.map((event) => _EventTile(
                           event: event,
                           onDelete: () => _confirmDelete(event),
