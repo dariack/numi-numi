@@ -124,7 +124,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="logo">👶 <span>Yuli</span></div>
       <div class="nav-item active" data-tab="home" onclick="setTab('home')"><span class="icon">🏠</span> Home</div>
       <div class="nav-item" data-tab="history" onclick="setTab('history')"><span class="icon">📋</span> History</div>
-      <div class="nav-item" data-tab="patterns" onclick="setTab('patterns')"><span class="icon">📊</span> Patterns</div>
+      <div class="nav-item" data-tab="feed" onclick="setTab('feed')" style="display:none"><span class="icon">🍼</span> Feed</div>
+      <div class="nav-item" data-tab="sleep" onclick="setTab('sleep')" style="display:none"><span class="icon">😴</span> Sleep</div>
+      <div class="nav-item" data-tab="diaper" onclick="setTab('diaper')" style="display:none"><span class="icon">🧷</span> Diaper</div>
+      <div class="nav-item" data-tab="pump" onclick="setTab('pump')" style="display:none"><span class="icon">🧴</span> Pump</div>
       <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
         <div class="fam-name" id="fam-display"></div>
@@ -173,14 +176,11 @@ function listenConfig(){
 function saveCfg(){db.collection('families').doc(fid).collection('settings').doc('config').set(cfg)}
 function updateNav(){
   var sb=document.getElementById('sidebar-nav');
-  var items=sb.querySelectorAll('.nav-item[data-tab=pump]');
-  items.forEach(function(el){el.remove()});
-  if(cfg.trackPump){
-    var pnav=document.createElement('div');pnav.className='nav-item';pnav.setAttribute('data-tab','pump');pnav.onclick=function(){setTab('pump')};
-    pnav.innerHTML='<span class="icon">🧴</span> Pump';
-    var settingsNav=sb.querySelector('.nav-item[data-tab=settings]');
-    sb.insertBefore(pnav,settingsNav);
-  }
+  var show={feed:cfg.trackFeed,sleep:cfg.trackSleep,diaper:cfg.trackDiaper,pump:cfg.trackPump};
+  ['feed','sleep','diaper','pump'].forEach(function(t){
+    var el=sb.querySelector('.nav-item[data-tab='+t+']');
+    if(el)el.style.display=show[t]?'':'none';
+  });
   sb.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===tab)});
 }
 function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<div class="loading"><div class="sp"></div>Loading...</div>';
@@ -190,7 +190,7 @@ function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<d
 
 function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
 function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
-  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='patterns')renderPatterns();else if(tab==='pump')renderPump();else if(tab==='settings')renderSettings()}
+  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='settings')renderSettings()}
 
 // ==================== HOME ====================
 function renderHome(){
@@ -206,32 +206,78 @@ function renderHome(){
     h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>'}
 
   if(cfg.trackSleep){
-    var s24=allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d24}).length;
-    var sl3=allEv.filter(function(e){return e.type==='sleep'&&e.startTime>=d3});var s3=(sl3.length/3).toFixed(1);
-    var sl3d=sl3.filter(function(e){return e.duration});var sAvgDur=sl3d.length?fmtMin(sl3d.reduce(function(s,e){return s+e.duration},0)/sl3d.length):'--';
-    h+=mkStat('😴','Sleep',ls,s24+' naps',s3,null,sAvgDur);
+    h+='<div class="stat"><div class="em">😴</div><div class="info"><div class="t">Sleep</div>';
+    if(ls){var endT=ls.endTime||ls.startTime;h+='<div class="l">Last: '+fmt(Date.now()-endT.getTime())+' ago</div>'}
+    else h+='<div class="l">No data</div>';
+    h+='</div></div>';
   }
   if(cfg.trackFeed){
-    var f24=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d24}).length;
-    var fl3=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=d3});var f3=(fl3.length/3).toFixed(1);
-    var fl3d=fl3.filter(function(e){return e.duration});var fAvgDur=fl3d.length?fmtMin(fl3d.reduce(function(s,e){return s+e.duration},0)/fl3d.length):'--';
-    h+=mkStat('🍼','Feed',lf,f24+' feeds',f3,lastSide,fAvgDur);
+    var recentFeeds=allEv.filter(function(e){return e.type==='feed'}).slice(0,2);
+    // Smart side recommendation
+    var recSide=null,recReason=null;
+    var breastFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source!=='pump'&&e.side});
+    var recentPumps=allEv.filter(function(e){return e.type==='pump'&&e.side&&e.side!=='both'}).slice(0,5);
+    var lastBF=breastFeeds[0];
+    if(lastBF){
+      var lastSd=lastBF.side;var otherSd=lastSd==='left'?'right':'left';
+      var lastEnd=lastBF.endTime||lastBF.startTime;
+      var minsSince=Math.round((Date.now()-lastEnd.getTime())/60000);
+      var dur=lastBF.duration||null;
+      // Pumps since last feed
+      var pumpsSince=recentPumps.filter(function(p){return p.startTime>lastEnd&&p.side!=='both'});
+      if(minsSince>120){
+        if(pumpsSince.length){var ps=pumpsSince[0].side;var fs=ps==='left'?'right':'left';recSide=fs;recReason=ps+' was pumped since last feed — '+fs+' is fuller'}
+        else{recSide=otherSd;recReason=Math.floor(minsSince/60)+'h+ gap — alternate to '+otherSd}
+      }else if(dur!==null&&dur<5){recSide=lastSd;recReason='Last feed very short ('+dur+'m) — offer '+lastSd+' again for hindmilk'}
+      else if(dur!==null&&dur<10){recSide=lastSd;recReason='Last feed short ('+dur+'m) — offer '+lastSd+' again'}
+      else if(pumpsSince.length){var ps2=pumpsSince[0].side;var fs2=ps2==='left'?'right':'left';recSide=fs2;recReason=ps2+' was pumped — '+fs2+' is fuller'}
+      else{recSide=otherSd;recReason='Alternating — last was '+lastSd+(dur?' ('+dur+'m)':'')}
+    }else if(recentPumps.length){
+      var ps3=recentPumps[0].side;var fs3=ps3==='left'?'right':'left';
+      recSide=fs3;recReason='Recently pumped '+ps3+' — other side is fuller';
+    }
+    h+='<div class="stat"><div class="em">🍼</div><div class="info"><div class="t">Feed</div>';
+    if(!recentFeeds.length){h+='<div class="l">No data</div>'}
+    else{
+      recentFeeds.forEach(function(f,i){
+        var endT2=f.endTime||f.startTime;var ago=fmt(Date.now()-endT2.getTime());
+        var detail=ago+' ago';
+        if(f.duration)detail+=' · '+fmtMin(f.duration);
+        else if(f.mlFed)detail+=' · '+f.mlFed+'ml';
+        else if(f.source==='pump'&&f.linkedPumps){try{var tot=JSON.parse(f.linkedPumps).reduce(function(s,x){return s+x.ml},0);if(tot)detail+=' · '+tot+'ml'}catch(e){}}
+        if(f.side)detail+=' · '+f.side;
+        if(!f.endTime&&!f.duration&&f.source!=='pump')detail+=' · ongoing';
+        h+='<div class="l">'+(i===0?'':'prev: ')+detail+'</div>';
+      });
+    }
+    if(recSide)h+='<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:0.85rem;padding:4px 10px;border-radius:8px;margin-top:4px">🤱 Next: '+recSide.toUpperCase()+'</div><div class="l2">'+recReason+'</div>';
+    h+='</div></div>';
   }
   if(cfg.trackDiaper){
-    var dps24=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d24});
-    var p24=dps24.filter(function(e){return e.pee}).length,po24=dps24.filter(function(e){return e.poop}).length;
-    var dps3=allEv.filter(function(e){return e.type==='diaper'&&e.startTime>=d3});
-    var p3d=(dps3.filter(function(e){return e.pee}).length/3).toFixed(1),po3=(dps3.filter(function(e){return e.poop}).length/3).toFixed(1);
-    h+=mkDiaperStat(ld,p24,po24,p3d,po3);
+    h+='<div class="stat"><div class="em">🧷</div><div class="info"><div class="t">Diaper</div>';
+    if(ld){var w=ld.pee&&ld.poop?'pee+poop':ld.poop?'poop':'pee';
+      h+='<div class="l">Last: '+fmt(Date.now()-ld.startTime.getTime())+' ago ('+w+')</div>'}
+    else h+='<div class="l">No data</div>';
+    h+='</div></div>';
   }
   if(cfg.trackPump){
-    var lp=lastOf('pump');
-    var pumps24=allEv.filter(function(e){return e.type==='pump'&&e.startTime>=d24});
-    var totalMl24=pumps24.reduce(function(s,e){return s+(e.ml||0)},0);
-    h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump</div>';
-    if(lp){h+='<div class="l">Last: '+fmt(Date.now()-lp.startTime.getTime())+' ago'+(lp.ml?' · '+lp.ml+'ml':'')+'</div>'}
-    else h+='<div class="l">No data</div>';
-    h+='<div class="l2">24h: '+pumps24.length+' pumps · '+totalMl24+'ml</div></div></div>';
+    var allPumps=allEv.filter(function(e){return e.type==='pump'&&!e.spoiled&&e.ml});
+    var pumpFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'});
+    var usedMl={};pumpFeeds.forEach(function(f){
+      if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){usedMl[lp.id]=(usedMl[lp.id]||0)+lp.ml})}catch(e){}}
+      else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)}
+    });
+    var stockByType={room:0,fridge:0,freezer:0};var now2=new Date();
+    allPumps.forEach(function(p){var rem=p.ml-(usedMl[p.id]||0);if(rem<=0)return;if(p.expiresAt&&p.expiresAt<now2)return;var st=p.storage||'room';stockByType[st]+=rem});
+    var stockParts=[];
+    if(stockByType.room>0)stockParts.push('🏠 '+stockByType.room+'ml');
+    if(stockByType.fridge>0)stockParts.push('❄️ '+stockByType.fridge+'ml');
+    if(stockByType.freezer>0)stockParts.push('🧊 '+stockByType.freezer+'ml');
+    var totalStock=stockByType.room+stockByType.fridge+stockByType.freezer;
+    h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump Stock</div>';
+    if(totalStock>0)h+='<div class="l">'+totalStock+'ml — '+stockParts.join(' · ')+'</div>';
+    else h+='<div class="l">Empty</div>';
+    h+='</div></div>';
   }
   h+='</div>';
 
@@ -325,8 +371,11 @@ function renderPump(){
   var now=new Date();
 
   // Calculate stock: available pumps (not spoiled, not expired, with remaining ml)
-  var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'&&e.linkedPumpId});
-  var usedMl={};feedsFromPump.forEach(function(f){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)});
+  var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'});
+  var usedMl={};feedsFromPump.forEach(function(f){
+    if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){usedMl[lp.id]=(usedMl[lp.id]||0)+lp.ml})}catch(e){}}
+    else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)}
+  });
 
   var stock={room:[],fridge:[],freezer:[]};
   pumps.forEach(function(p){
@@ -430,40 +479,191 @@ function drawND(id,evs,cutoff,now){dcx(id);var dn={},dd={};for(var t=new Date(cu
     {label:'Day',data:Object.values(dd).map(function(m){return+(m/60).toFixed(1)}),backgroundColor:'rgba(251,191,36,0.7)',borderRadius:2}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:tc}}},scales:{y:{stacked:true,beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{stacked:true,ticks:{color:tc,maxRotation:45},grid:{display:false}}}}})}
 
-function renderPatterns(){
-  var h='<div class="page-title">Patterns & Analytics</div>';
-  h+='<div class="filters" style="margin-bottom:16px">';
-  [3,7,14,30,60].forEach(function(d){h+='<span class="chip '+(rd===d?'sel':'')+'" onclick="rd='+d+';render()">'+d+' days</span>'});
-  h+='<span class="chip" onclick="exportCSV()" style="margin-left:auto">⬇ Export CSV</span>';
-  h+='</div>';
-  var now=new Date(),cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-rd);
-  var filt=allEv.filter(function(e){return e.startTime>=cutoff});
-  var sleeps=filt.filter(function(e){return e.type==='sleep'&&e.duration});
-  var feeds=filt.filter(function(e){return e.type==='feed'&&e.duration});
-  var diapers=filt.filter(function(e){return e.type==='diaper'});
-  var days=Math.max(rd,1);
-  var totalSleepMin=sleeps.reduce(function(s,e){return s+(e.duration||0)},0);
-  var totalFeedMin=feeds.reduce(function(s,e){return s+(e.duration||0)},0);
-  var pees=diapers.filter(function(e){return e.pee}).length;
-  var poops=diapers.filter(function(e){return e.poop}).length;
-  var leftF=feeds.filter(function(e){return e.side==='left'}).length;
-  var rightF=feeds.filter(function(e){return e.side==='right'}).length;
-  var totalSided=leftF+rightF;
+function renderPatterns(){renderFeedTab()}
 
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">';
-  if(cfg.trackSleep)h+='<div class="stat" style="background:var(--card)"><div class="em">😴</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--sleep)">'+fmtMin(totalSleepMin/days)+'/day</div><div class="l">'+sleeps.length+' naps in '+rd+' days · avg '+fmtMin(sleeps.length?totalSleepMin/sleeps.length:0)+' each · '+(sleeps.length/days).toFixed(1)+'/day</div></div></div>';
-  if(cfg.trackFeed)h+='<div class="stat" style="background:var(--card)"><div class="em">🍼</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--feed)">'+(feeds.length/days).toFixed(1)+' feeds/day</div><div class="l">avg '+fmtMin(feeds.length?totalFeedMin/feeds.length:0)+' each · '+fmtMin(totalFeedMin/days)+' total/day</div></div></div>';
-  if(cfg.trackDiaper)h+='<div class="stat" style="background:var(--card)"><div class="em">🧷</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--diaper)">'+((pees+poops)/days).toFixed(1)+' diapers/day</div><div class="l">💧'+(pees/days).toFixed(1)+'/day · 💩'+(poops/days).toFixed(1)+'/day</div></div></div>';
-  if(totalSided>0){var lp2=Math.round(leftF/totalSided*100);
-    h+='<div class="stat" style="background:var(--card)"><div class="em">🤱</div><div class="info"><div class="t" style="font-size:1.5rem;color:var(--purple)">'+lp2+'% / '+(100-lp2)+'%</div><div class="l">Left: '+leftF+' · Right: '+rightF+' '+(Math.abs(lp2-50)<15?'✓ Balanced':'⚠ Consider alternating')+'</div></div></div>'}
-  h+='</div>';
-  if(cfg.trackSleep){
-    h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🕐 When Does Yuli Sleep?</div><canvas id="pc3" style="max-height:250px"></canvas></div>';
-    h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🌙 Night vs Day Sleep</div><canvas id="pc4" style="max-height:250px"></canvas></div>';
+// ==================== FEED TAB ====================
+function renderFeedTab(){
+  var h='<div class="page-title">🍼 Feed Insights</div>';
+  var now=new Date();
+  var feeds=allEv.filter(function(e){return e.type==='feed'});
+
+  // Time since last feed
+  var lastFeed=feeds[0];
+  if(lastFeed){var endT=lastFeed.endTime||lastFeed.startTime;h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+fmt(now-endT)+'</div><div class="l">Time since last feed</div></div></div>';
   }
+
+  // Smart side recommendation (same logic as quick stats)
+  var recSide2=null,recReason2=null;
+  var breastFeeds2=feeds.filter(function(f){return f.source!=='pump'&&f.side});
+  var recentPumps2=allEv.filter(function(e){return e.type==='pump'&&e.side&&e.side!=='both'}).slice(0,5);
+  var lastBF2=breastFeeds2[0];
+  if(lastBF2){
+    var ls2=lastBF2.side;var os2=ls2==='left'?'right':'left';
+    var le2=lastBF2.endTime||lastBF2.startTime;
+    var ms2=Math.round((Date.now()-le2.getTime())/60000);
+    var dur2=lastBF2.duration||null;
+    var ps2=recentPumps2.filter(function(p){return p.startTime>le2&&p.side!=='both'});
+    if(ms2>120){if(ps2.length){var psd=ps2[0].side;recSide2=psd==='left'?'right':'left';recReason2=psd+' pumped since last feed — other side fuller'}else{recSide2=os2;recReason2=Math.floor(ms2/60)+'h+ gap — alternate to '+os2}}
+    else if(dur2!==null&&dur2<5){recSide2=ls2;recReason2='Last feed very short ('+dur2+'m) — offer '+ls2+' again for hindmilk'}
+    else if(dur2!==null&&dur2<10){recSide2=ls2;recReason2='Last feed short ('+dur2+'m) — offer '+ls2+' again'}
+    else if(ps2.length){var psd2=ps2[0].side;recSide2=psd2==='left'?'right':'left';recReason2=psd2+' was pumped — other side fuller'}
+    else{recSide2=os2;recReason2='Alternating — last was '+ls2+(dur2?' ('+dur2+'m)':'')}
+  }else if(recentPumps2.length){var psd3=recentPumps2[0].side;recSide2=psd3==='left'?'right':'left';recReason2='Recently pumped '+psd3+' — other side fuller'}
+  if(recSide2){
+    h+='<div style="background:var(--feeddim);border:2px solid var(--feed);border-radius:12px;padding:16px;margin:10px 0"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><span style="font-size:1.5rem">🤱</span><span style="font-weight:700;font-size:1.2rem;color:var(--feed)">Next side: '+recSide2.toUpperCase()+'</span></div><div style="font-size:0.85rem;color:var(--muted)">'+recReason2+'</div></div>';
+  }
+
+  // Today stats — combined ml + duration using 60ml≈30min conversion
+  var today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
+  var feedsToday=feeds.filter(function(f){return f.startTime>=today6});
+  function feedMinEquiv(f){
+    if(f.duration)return f.duration;
+    var ml=f.mlFed||0;
+    if(!ml&&f.linkedPumps){try{ml=JSON.parse(f.linkedPumps).reduce(function(s,x){return s+x.ml},0)}catch(e){}}
+    if(ml>0)return ml/2; // 60ml ≈ 30min
+    return 0;
+  }
+  var todayEquiv=feedsToday.reduce(function(s,f){return s+feedMinEquiv(f)},0);
+  var d3=new Date(now-2592e5);
+  var feeds3d=feeds.filter(function(f){return f.startTime>=d3});
+  var avg3dEquiv=feeds3d.length?feeds3d.reduce(function(s,f){return s+feedMinEquiv(f)},0)/3:0;
+  var durOnly=feedsToday.reduce(function(s,f){return s+(f.duration||0)},0);
+  var mlOnly=feedsToday.reduce(function(s,f){
+    var ml=f.mlFed||0;if(!ml&&f.linkedPumps){try{ml=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0)}catch(e){}}return s+ml;
+  },0);
+  var todayParts=[];
+  if(durOnly>0)todayParts.push(fmtMin(durOnly)+' breast');
+  if(mlOnly>0)todayParts.push(mlOnly+'ml pumped');
+  var todayStr=todayParts.length?todayParts.join(' + '):'No feeds yet';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Today so far</div>';
+  h+='<div class="l" style="color:var(--feed);font-weight:600">'+todayStr+'</div>';
+  if(avg3dEquiv>0){h+='<div class="l2">3-day avg: ~'+fmtMin(Math.round(avg3dEquiv))+' equiv/day</div>';
+    h+=compLabel(todayEquiv,avg3dEquiv,'feeding');}
+  h+='</div></div>';
+
+  // Left/right balance (7-day)
+  var d7=new Date(now-604800000);
+  var feeds7d=feeds.filter(function(f){return f.startTime>=d7&&f.side});
+  var leftF=feeds7d.filter(function(f){return f.side==='left'}).length;
+  var rightF=feeds7d.filter(function(f){return f.side==='right'}).length;
+  var totalSided=leftF+rightF;
+  if(totalSided>0){var lp=Math.round(leftF/totalSided*100);
+    h+='<div class="stat" style="background:var(--card)"><div class="em">🤱</div><div class="info"><div class="t" style="color:var(--purple)">'+lp+'% / '+(100-lp)+'%</div><div class="l">Left: '+leftF+' · Right: '+rightF+' (7-day) '+(Math.abs(lp-50)<15?'✓ Balanced':'⚠ Consider alternating')+'</div></div></div>';
+  }
+
+  // Recent feed history
+  h+='<div class="section-label" style="margin-top:20px">Recent Feeds</div>';
+  h+=renderMiniHistory(feeds.slice(0,30));
   document.getElementById('main').innerHTML=h;
-  if(cfg.trackSleep)setTimeout(function(){draw24h('pc3',sleeps);drawND('pc4',sleeps,cutoff,now)},50);
 }
+
+function getPeriodName(d){var h=d.getHours();if(h>=0&&h<6)return 'Night';if(h>=6&&h<12)return 'Morning';if(h>=12&&h<18)return 'Afternoon';return 'Evening'}
+function getPeriodStart(d){var h=d.getHours();if(h>=0&&h<6)return new Date(d.getFullYear(),d.getMonth(),d.getDate(),0);
+  if(h>=6&&h<12)return new Date(d.getFullYear(),d.getMonth(),d.getDate(),6);
+  if(h>=12&&h<18)return new Date(d.getFullYear(),d.getMonth(),d.getDate(),12);
+  return new Date(d.getFullYear(),d.getMonth(),d.getDate(),18)}
+function compLabel(current,avg,noun){
+  if(avg<=0)return '';
+  var pct=(current-avg)/avg;
+  if(pct>0.20){var p=Math.round(pct*100);return '<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:600;font-size:0.78rem;padding:3px 10px;border-radius:8px;margin-top:4px">📈 '+p+'% more '+noun+' than usual</div> '}
+  if(pct<-0.20){var p2=Math.round(Math.abs(pct)*100);return '<div style="display:inline-block;background:rgba(59,130,246,0.15);color:#3b82f6;font-weight:600;font-size:0.78rem;padding:3px 10px;border-radius:8px;margin-top:4px">📉 '+p2+'% less '+noun+' than usual</div> '}
+  return '<div style="display:inline-block;background:rgba(34,197,94,0.15);color:#22c55e;font-weight:600;font-size:0.78rem;padding:3px 10px;border-radius:8px;margin-top:4px">✅ About the same as usual</div> '}
+
+// ==================== SLEEP TAB ====================
+function renderSleepTab(){
+  var h='<div class="page-title">😴 Sleep Insights</div>';
+  var now=new Date();
+  var sleeps=allEv.filter(function(e){return e.type==='sleep'});
+
+  // Time since last sleep
+  var lastSleep=sleeps[0];
+  if(lastSleep){var endT=lastSleep.endTime||lastSleep.startTime;
+    h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--sleep)">'+fmt(now-endT)+'</div><div class="l">'+(lastSleep.endTime?'Awake for':'Since last sleep')+'</div></div></div>';
+  }
+
+  // Today stats
+  var today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
+  var sleepsToday=sleeps.filter(function(f){return f.startTime>=today6});
+  var durToday=sleepsToday.reduce(function(s,f){return s+(f.duration||0)},0);
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Today</div><div class="l">'+sleepsToday.length+' naps · '+fmtMin(durToday)+' total sleep</div></div></div>';
+
+  // 7-day stats
+  var d7=new Date(now-604800000);
+  var sleeps7d=sleeps.filter(function(e){return e.startTime>=d7&&e.duration});
+  var totalMin7d=sleeps7d.reduce(function(s,e){return s+(e.duration||0)},0);
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📈</div><div class="info"><div class="t">7-Day Average</div><div class="l">'+fmtMin(totalMin7d/7)+'/day · '+(sleeps7d.length/7).toFixed(1)+' naps/day · avg '+fmtMin(sleeps7d.length?totalMin7d/sleeps7d.length:0)+' each</div></div></div>';
+
+  // Charts
+  h+='<div class="stat" style="background:var(--card);padding:20px;margin:16px 0"><div class="t" style="margin-bottom:12px">🕐 When Does Yuli Sleep?</div><canvas id="stc1" style="max-height:250px"></canvas></div>';
+  h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🌙 Night vs Day Sleep</div><canvas id="stc2" style="max-height:250px"></canvas></div>';
+
+  // Recent history
+  h+='<div class="section-label" style="margin-top:20px">Recent Sleep</div>';
+  h+=renderMiniHistory(sleeps.slice(0,30));
+  document.getElementById('main').innerHTML=h;
+  setTimeout(function(){var cutoff=new Date(now-604800000);draw24h('stc1',sleeps7d);drawND('stc2',sleeps7d,cutoff,now)},50);
+}
+
+// ==================== DIAPER TAB ====================
+function renderDiaperTab(){
+  var h='<div class="page-title">🧷 Diaper Insights</div>';
+  var now=new Date();
+  var diapers=allEv.filter(function(e){return e.type==='diaper'});
+
+  // Last diaper
+  var lastD=diapers[0];
+  if(lastD){var w=lastD.pee&&lastD.poop?'pee+poop':lastD.poop?'poop':'pee';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--diaper)">'+fmt(now-lastD.startTime)+'</div><div class="l">Since last diaper ('+w+')</div></div></div>';
+  }
+
+  // Today count vs 3-day avg
+  var today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
+  var dToday=diapers.filter(function(e){return e.startTime>=today6}).length;
+  var d3=new Date(now-2592e5);
+  var d3d=diapers.filter(function(e){return e.startTime>=d3}).length;
+  var avg3d=d3d/3;
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Today so far</div>';
+  h+='<div class="l" style="color:var(--diaper);font-weight:600">'+dToday+' diapers</div>';
+  if(avg3d>0){h+='<div class="l2">3-day avg: '+avg3d.toFixed(1)+'/day</div>';h+=compLabel(dToday,avg3d,'diapers');}
+  h+='</div></div>';
+
+  // 3-day avg per period
+  var periods=['Night','Morning','Afternoon','Evening'];
+  var periodAvgs=periods.map(function(p){
+    var count=diapers.filter(function(e){return e.startTime>=d3&&getPeriodName(e.startTime)===p}).length;
+    return {name:p,avg:(count/3).toFixed(1)};
+  });
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🕐</div><div class="info"><div class="t">3-Day Avg by Period</div>';
+  h+='<div class="l">'+periodAvgs.map(function(p){
+    var em={Night:'🌙',Morning:'🌅',Afternoon:'☀️',Evening:'🌇'}[p.name];
+    return em+' '+p.name+': '+p.avg;
+  }).join(' · ')+'</div></div></div>';
+
+  // Recent history
+  h+='<div class="section-label" style="margin-top:20px">Recent Diapers</div>';
+  h+=renderMiniHistory(diapers.slice(0,30));
+  document.getElementById('main').innerHTML=h;
+}
+
+// Mini history for tab views
+function renderMiniHistory(evs){
+  if(!evs.length)return '<div style="text-align:center;padding:20px;color:var(--muted)">No events</div>';
+  var h='<table class="ev-table">';
+  evs.forEach(function(e){
+    var time=pad(e.startTime.getHours())+':'+pad(e.startTime.getMinutes());
+    var date=pad(e.startTime.getDate())+'/'+pad(e.startTime.getMonth()+1);
+    var props=[];
+    if(e.duration)props.push(fmtMin(e.duration));
+    else if(e.endTime)props.push(fmt(e.endTime-e.startTime));
+    else if((e.type==='sleep'||e.type==='feed')&&!e.endTime&&!e.duration)props.push('ongoing');
+    if(e.side)props.push(e.side);
+    if(e.source==='pump')props.push('pumped milk');
+    if(e.mlFed)props.push(e.mlFed+'ml');
+    if(e.type==='pump'){if(e.ml)props.push(e.ml+'ml');if(e.storage)props.push(e.storage);if(e.spoiled)props.push('⚠️ spoiled')}
+    h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">'+displayName(e)+'</div>';
+    if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
+    h+='</td><td class="td-acts"><button onclick="editEv(\''+e.id+'\')">✏️</button> <button class="del" onclick="delEv(\''+e.id+'\',\''+displayName(e).replace(/'/g,"\\'")+'\')">🗑</button></td></tr>'});
+  h+='</table>';return h}
 
 function exportCSV(){if(!allEv.length){alert('No data');return}var now=new Date(),cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-rd);
   var filt=allEv.filter(function(e){return e.startTime>=cutoff}).sort(function(a,b){return a.startTime-b.startTime});
@@ -474,12 +674,14 @@ function exportCSV(){if(!allEv.length){alert('No data');return}var now=new Date(
 
 // ==================== LOG WIZARD ====================
 var wiz={step:0,type:'',when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0,
-  source:null,linkedPumpId:null,mlFed:null,ml:null,storage:null};
+  source:null,linkedPumpId:null,linkedPumps:null,mlFed:null,ml:null,storage:null,selectedPumps:{},adHocMl:null};
 function resetWiz(type){wiz={step:0,type:type,when:new Date(),durMin:null,ongoing:false,side:null,pee:false,poop:false,isNow:true,endId:null,endEv:null,whenMins:0,
-  source:null,linkedPumpId:null,mlFed:null,ml:null,storage:null}}
+  source:null,linkedPumpId:null,linkedPumps:null,mlFed:null,ml:null,storage:null,selectedPumps:{},adHocMl:null}}
 
 function openLog(type){var ong=findOngoing();
   if(type==='pump'){resetWiz('pump');showWiz();return}
+  if(type==='feed'&&!ong){resetWiz('feed');wiz.step=30;showWiz();return}
+  if(type==='diaper'){resetWiz('diaper');wiz.step=31;showWiz();return}
   if(ong&&ong.type===type){resetWiz(type);wiz.step=1;wiz.when=ong.startTime;wiz.side=ong.side;wiz.endId=ong.id;wiz.endEv=ong;wiz.isNow=false;showWiz();return}
   resetWiz(type);showWiz()}
 function openEnd(id,type){var ong=allEv.find(function(e){return e.id===id});if(!ong)return;resetWiz(type);wiz.step=1;wiz.when=ong.startTime;wiz.side=ong.side;wiz.endId=id;wiz.endEv=ong;wiz.isNow=false;showWiz()}
@@ -488,9 +690,8 @@ function showWiz(){var em={sleep:'😴',feed:'🍼',diaper:'🧷',pump:'🧴'},n
   var title=(wiz.endId?'End ':'Log ')+nm[wiz.type];
   var h='<div class="modal-bg" onclick="if(event.target===this)closeWiz()"><div class="modal"><h3>'+em[wiz.type]+' '+title+'</h3>';
   if(wiz.type==='pump'){h+=wizPump()}
-  else if(wiz.type==='feed'&&wiz.step===10){h+=wizFeedSource()}
-  else if(wiz.type==='feed'&&wiz.step===11){h+=wizPickPump()}
-  else if(wiz.type==='feed'&&wiz.step===12){h+=wizMlFed()}
+  else if(wiz.type==='feed'&&wiz.step===30){h+=wizFeed()}
+  else if(wiz.type==='diaper'&&wiz.step===31){h+=wizDiaperFull()}
   else if(wiz.step===0)h+=wizWhen();
   else if(wiz.step===1)h+=wizDur();
   else if(wiz.step===2)h+=wizDiaper();
@@ -517,6 +718,20 @@ function wizDur(){var isSl=wiz.type==='sleep';
   var nl=wiz.type==='feed'?'Next':'Save';
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizNext()">'+nl+'</button></div>';return h}
 
+function wizDiaperFull(){
+  var h='<div class="step-label">When?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.isNow&&wiz.whenMins===0?'sel':'')+'" onclick="wizSetWhen(0)">Now</div>';
+  h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="wizSetWhen(15)">15m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="wizSetWhen(30)">30m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===60?'sel':'')+'" onclick="wizSetWhen(60)">1h ago</div></div>';
+  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-c" value="'+dtLocal(wiz.when)+'" onchange="wizSetCustom(this.value)"/></div>';
+  h+='<div class="step-label" style="margin-top:14px">What was in the diaper?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.pee?'sel':'')+'" onclick="wiz.pee=!wiz.pee;showWiz()">💧 Pee</div>';
+  h+='<div class="opt '+(wiz.poop?'sel':'')+'" onclick="wiz.poop=!wiz.poop;showWiz()">💩 Poop</div>';
+  h+='<div class="opt '+(wiz.pee&&wiz.poop?'sel':'')+'" onclick="wiz.pee=true;wiz.poop=true;showWiz()">🧷 Both</div></div>';
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="if(!wiz.pee&&!wiz.poop){alert(\'Select at least one\');return}wizSave()">Save</button></div>';
+  return h}
+
 function wizDiaper(){var h='<div class="step-label">What was in the diaper?</div><div class="opts">';
   h+='<div class="opt '+(wiz.pee?'sel':'')+'" onclick="wiz.pee=!wiz.pee;showWiz()">💧 Pee</div>';
   h+='<div class="opt '+(wiz.poop?'sel':'')+'" onclick="wiz.poop=!wiz.poop;showWiz()">💩 Poop</div>';
@@ -528,57 +743,135 @@ function wizSide(){var h='<div class="step-label">Which side? (optional)</div><d
   h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">🤱 Right</div></div>';
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizSave()">Save</button></div>';return h}
 
-// Feed source: breast or pumped milk
-function wizFeedSource(){var h='<div class="step-label">Feeding from?</div><div class="opts">';
-  h+='<div class="opt '+(wiz.source!=='pump'?'sel':'')+'" onclick="wiz.source=\'breast\';wiz.step=3;showWiz()">🤱 Breast</div>';
-  h+='<div class="opt '+(wiz.source==='pump'?'sel-p':'')+'" onclick="wiz.source=\'pump\';wiz.step=11;showWiz()">🧴 Pumped Milk</div></div>';
-  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button></div>';return h}
+// Single-page feed wizard (like pump)
+function wizFeed(){
+  var h='<div class="step-label">Feeding from?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.source==='breast'||!wiz.source?'sel':'')+'" onclick="snapInputs();wiz.source=\'breast\';showWiz()">🤱 Breast</div>';
+  h+='<div class="opt '+(wiz.source==='pump'?'sel':'')+'" onclick="snapInputs();wiz.source=\'pump\';showWiz()">🧴 Pumped Milk</div></div>';
 
-// Pick pump from available stock
-function wizPickPump(){
-  var now=new Date();
-  var pumps=allEv.filter(function(e){return e.type==='pump'&&!e.spoiled&&e.ml&&(!e.expiresAt||e.expiresAt>now)});
-  // Calculate remaining ml
-  var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'&&e.linkedPumpId});
-  var usedMl={};feedsFromPump.forEach(function(f){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)});
-  pumps=pumps.filter(function(p){return(p.ml-(usedMl[p.id]||0))>0});
+  // When
+  h+='<div class="step-label" style="margin-top:14px">When?</div><div class="opts">';
+  h+='<div class="opt '+(wiz.isNow&&wiz.whenMins===0?'sel':'')+'" onclick="wizSetWhen(0)">Now</div>';
+  h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="wizSetWhen(15)">15m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="wizSetWhen(30)">30m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===60?'sel':'')+'" onclick="wizSetWhen(60)">1h ago</div></div>';
+  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-c" value="'+dtLocal(wiz.when)+'" onchange="wizSetCustom(this.value)"/></div>';
+  if(wiz.isNow&&wiz.source!=='pump')h+='<div class="step-sub" style="color:var(--feed)">Will be logged as ongoing</div>';
 
-  var h='<div class="step-label">Pick pump portion (optional)</div>';
-  if(!pumps.length){h+='<div class="step-sub">No available pump portions</div>'}
-  else{
-    h+='<div class="opts" style="flex-direction:column">';
-    pumps.forEach(function(p){
-      var rem=p.ml-(usedMl[p.id]||0);
-      var pid=p.pumpId||makePumpId(p);
-      h+='<div class="opt '+(wiz.linkedPumpId===p.id?'sel-p':'')+'" onclick="wiz.linkedPumpId=\''+p.id+'\';wiz.mlFed='+rem+';showWiz()" style="width:100%">'+pid+' — '+rem+'ml remaining</div>';
-    });
-    h+='</div>';
+  // Breast: side + duration
+  if(wiz.source==='breast'||!wiz.source){
+    h+='<div class="step-label" style="margin-top:14px">Side (optional)</div><div class="opts">';
+    h+='<div class="opt '+(wiz.side==='left'?'sel':'')+'" onclick="snapInputs();wiz.side=wiz.side===\'left\'?null:\'left\';showWiz()">🤱 Left</div>';
+    h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="snapInputs();wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">🤱 Right</div></div>';
+    if(!wiz.isNow){
+      var opts=[[10,'10m'],[15,'15m'],[20,'20m'],[30,'30m']];
+      h+='<div class="step-label" style="margin-top:14px">Duration</div><div class="opts">';
+      opts.forEach(function(o){h+='<div class="opt '+(wiz.durMin===o[0]&&!wiz.ongoing?'sel':'')+'" onclick="snapInputs();wiz.durMin='+o[0]+';wiz.ongoing=false;showWiz()">'+o[1]+'</div>'});
+      h+='<div class="opt '+(wiz.ongoing?'sel-o':'')+'" onclick="snapInputs();wiz.ongoing=true;wiz.durMin=null;showWiz()">⏱ Still ongoing</div>';
+      h+='</div><div class="custom-row"><label>Custom (minutes):</label><input type="number" placeholder="e.g. 45" onchange="snapInputs();wiz.durMin=+this.value;wiz.ongoing=false;showWiz()"/></div>';
+    }
   }
-  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wiz.step=12;showWiz()">Next</button></div>';return h}
 
-function wizMlFed(){var h='<div class="step-label">How much was fed? (ml)</div>';
-  h+='<div class="custom-row"><input type="number" id="wiz-ml-fed" placeholder="'+(wiz.mlFed||'optional')+'" value="'+(wiz.mlFed||'')+'"/></div>';
-  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="var v=document.getElementById(\'wiz-ml-fed\').value;wiz.mlFed=v?parseInt(v):null;wizSave()">Save</button></div>';return h}
+  // Pump: multi-select portions + ad hoc ml (no duration/side)
+  if(wiz.source==='pump'){
+    var now=new Date();
+    var pumps=allEv.filter(function(e){return e.type==='pump'&&!e.spoiled&&e.ml&&(!e.expiresAt||e.expiresAt>now)});
+    var feedsFromPump=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'});
+    var usedMl={};feedsFromPump.forEach(function(f){
+      if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){usedMl[lp.id]=(usedMl[lp.id]||0)+lp.ml})}catch(e){}}
+      else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)}
+    });
+    pumps=pumps.filter(function(p){return(p.ml-(usedMl[p.id]||0))>0});
+    h+='<div class="step-label" style="margin-top:14px">Select pump portions</div>';
+    if(!pumps.length){h+='<div class="step-sub">No available pump portions</div>'}
+    else{h+='<div class="opts" style="flex-direction:column">';
+      pumps.forEach(function(p){var rem=p.ml-(usedMl[p.id]||0);var pid=p.pumpId||makePumpId(p);
+        var sel=wiz.selectedPumps[p.id]!==undefined;
+        h+='<div class="opt '+(sel?'sel':'')+'" onclick="snapInputs();wizTogglePump(\''+p.id+'\','+rem+')" style="width:100%;display:flex;align-items:center;gap:8px">';
+        h+='<span>'+(sel?'☑':'☐')+'</span><span style="flex:1">'+pid+' — '+rem+'ml</span>';
+        if(sel)h+='<input type="number" id="pump-ml-'+p.id+'" value="'+(wiz.selectedPumps[p.id]||rem)+'" style="width:55px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:6px;font-size:0.85rem" onclick="event.stopPropagation()" oninput="wiz.selectedPumps[\''+p.id+'\']=parseInt(this.value)||0"/>ml';
+        h+='</div>';
+      });h+='</div>'}
+    // Selected totals
+    var selTotal=Object.values(wiz.selectedPumps).reduce(function(s,v){return s+v},0);
+    var selCount=Object.keys(wiz.selectedPumps).length;
+    if(selCount>0)h+='<div style="font-size:0.85rem;font-weight:600;color:var(--purple);margin-top:6px">Selected: '+selTotal+'ml from '+selCount+' portion'+(selCount>1?'s':'')+'</div>';
+    // Ad hoc
+    h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px"><div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px">Or enter ml without a pump record:</div>';
+    h+='<input type="number" id="wiz-adhoc-ml" placeholder="e.g. 60" value="'+(wiz.adHocMl||'')+'" oninput="wiz.adHocMl=parseInt(this.value)||null" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:8px;width:100%;font-size:0.9rem"/></div>';
+  }
+
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizSaveFeed()">Save</button></div>';
+  return h}
+
+function wizTogglePump(id,rem){
+  if(wiz.selectedPumps[id]!==undefined)delete wiz.selectedPumps[id];
+  else wiz.selectedPumps[id]=rem;
+  showWiz()}
+
+function wizSaveFeed(){
+  if(!wiz.source)wiz.source='breast';
+  if(wiz.source==='breast'){
+    if(wiz.isNow){wiz.ongoing=true;wiz.durMin=null}
+    wizSave();return;
+  }
+  // Pump feed
+  snapInputs();
+  // Capture per-pump ml from inputs
+  Object.keys(wiz.selectedPumps).forEach(function(pid){
+    var el=document.getElementById('pump-ml-'+pid);if(el&&el.value)wiz.selectedPumps[pid]=parseInt(el.value)||0;
+  });
+  var adEl=document.getElementById('wiz-adhoc-ml');if(adEl&&adEl.value)wiz.adHocMl=parseInt(adEl.value);
+  var hasSelection=Object.keys(wiz.selectedPumps).length>0;
+  var hasAdHoc=wiz.adHocMl&&wiz.adHocMl>0;
+  if(!hasSelection&&!hasAdHoc){alert('Select a pump portion or enter ml');return}
+
+  // Create ad-hoc pump if needed
+  var afterAdHoc=function(){
+    var linkedArr=Object.keys(wiz.selectedPumps).map(function(pid){return {id:pid,ml:wiz.selectedPumps[pid]}});
+    var totalMl=linkedArr.reduce(function(s,x){return s+x.ml},0);
+    var data={type:'feed',startTime:firebase.firestore.Timestamp.fromDate(wiz.when),endTime:firebase.firestore.Timestamp.fromDate(wiz.when),duration:0,pee:false,poop:false,createdBy:'web',createdAt:firebase.firestore.Timestamp.now(),source:'pump'};
+    if(linkedArr.length>0)data.linkedPumps=JSON.stringify(linkedArr);
+    if(totalMl>0)data.mlFed=totalMl;
+    db.collection('families').doc(fid).collection('events').add(data).then(function(ref){
+      closeWiz();showSnack('🍼 Fed '+totalMl+'ml from pumped milk','undo',ref.id)});
+  };
+
+  if(hasAdHoc){
+    var adHocData={type:'pump',startTime:firebase.firestore.Timestamp.fromDate(wiz.when),pee:false,poop:false,createdBy:'web-adhoc',createdAt:firebase.firestore.Timestamp.now(),ml:wiz.adHocMl,spoiled:false};
+    db.collection('families').doc(fid).collection('events').add(adHocData).then(function(ref){
+      wiz.selectedPumps[ref.id]=wiz.adHocMl;afterAdHoc()});
+  } else {afterAdHoc()}
+}
 
 // Pump wizard — single step
 function wizPump(){
   var h='<div class="step-label">When was this pumped?</div><div class="opts">';
-  h+='<div class="opt '+(wiz.isNow?'sel':'')+'" onclick="wiz.when=new Date();wiz.isNow=true;showWiz()">Now</div>';
-  h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="wizSetWhen(15)">15m ago</div>';
-  h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="wizSetWhen(30)">30m ago</div></div>';
-  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-pump-time" value="'+dtLocal(wiz.when)+'" onchange="wizSetCustom(this.value)"/></div>';
-  h+='<div class="custom-row"><label>Milliliters (optional)</label><input type="number" id="wiz-pump-ml" placeholder="e.g. 120" value="'+(wiz.ml||'')+'"/></div>';
+  h+='<div class="opt '+(wiz.isNow?'sel':'')+'" onclick="snapInputs();wiz.when=new Date();wiz.isNow=true;showWiz()">Now</div>';
+  h+='<div class="opt '+(wiz.whenMins===15?'sel':'')+'" onclick="snapInputs();wizSetWhen(15)">15m ago</div>';
+  h+='<div class="opt '+(wiz.whenMins===30?'sel':'')+'" onclick="snapInputs();wizSetWhen(30)">30m ago</div></div>';
+  h+='<div class="custom-row"><label>Or pick a time:</label><input type="datetime-local" id="wiz-pump-time" value="'+dtLocal(wiz.when)+'" onchange="snapInputs();wizSetCustom(this.value)"/></div>';
+  h+='<div class="custom-row"><label>Milliliters (optional)</label><input type="number" id="wiz-pump-ml" placeholder="e.g. 120" value="'+(wiz.ml||'')+'" oninput="var v=parseInt(this.value);wiz.ml=isNaN(v)?null:v"/></div>';
   h+='<div class="step-label">Side (optional)</div><div class="opts">';
-  h+='<div class="opt '+(wiz.side==='left'?'sel':'')+'" onclick="wiz.side=wiz.side===\'left\'?null:\'left\';showWiz()">Left</div>';
-  h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">Right</div>';
-  h+='<div class="opt '+(wiz.side==='both'?'sel':'')+'" onclick="wiz.side=wiz.side===\'both\'?null:\'both\';showWiz()">Both</div></div>';
+  h+='<div class="opt '+(wiz.side==='left'?'sel':'')+'" onclick="snapInputs();wiz.side=wiz.side===\'left\'?null:\'left\';showWiz()">Left</div>';
+  h+='<div class="opt '+(wiz.side==='right'?'sel':'')+'" onclick="snapInputs();wiz.side=wiz.side===\'right\'?null:\'right\';showWiz()">Right</div>';
+  h+='<div class="opt '+(wiz.side==='both'?'sel':'')+'" onclick="snapInputs();wiz.side=wiz.side===\'both\'?null:\'both\';showWiz()">Both</div></div>';
   h+='<div class="step-label">Stored at (optional)</div><div class="opts">';
-  h+='<div class="opt '+(wiz.storage==='room'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'room\'?null:\'room\';showWiz()">🏠 Room</div>';
-  h+='<div class="opt '+(wiz.storage==='fridge'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'fridge\'?null:\'fridge\';showWiz()">❄️ Fridge</div>';
-  h+='<div class="opt '+(wiz.storage==='freezer'?'sel':'')+'" onclick="wiz.storage=wiz.storage===\'freezer\'?null:\'freezer\';showWiz()">🧊 Freezer</div></div>';
+  h+='<div class="opt '+(wiz.storage==='room'?'sel':'')+'" onclick="snapInputs();wiz.storage=wiz.storage===\'room\'?null:\'room\';showWiz()">🏠 Room</div>';
+  h+='<div class="opt '+(wiz.storage==='fridge'?'sel':'')+'" onclick="snapInputs();wiz.storage=wiz.storage===\'fridge\'?null:\'fridge\';showWiz()">❄️ Fridge</div>';
+  h+='<div class="opt '+(wiz.storage==='freezer'?'sel':'')+'" onclick="snapInputs();wiz.storage=wiz.storage===\'freezer\'?null:\'freezer\';showWiz()">🧊 Freezer</div></div>';
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="wizSavePump()">Save</button></div>';return h}
 
+// Capture text inputs before re-rendering
+function snapInputs(){
+  var ml=document.getElementById('wiz-pump-ml');
+  if(ml){var v=parseInt(ml.value);wiz.ml=isNaN(v)?null:v}
+  var mlf=document.getElementById('wiz-ml-fed');
+  if(mlf){var v2=parseInt(mlf.value);wiz.mlFed=isNaN(v2)?null:v2}
+}
+
 function wizSavePump(){
+  snapInputs();
   var mlInput=document.getElementById('wiz-pump-ml');
   wiz.ml=mlInput&&mlInput.value?parseInt(mlInput.value):null;
   var exp=null;
@@ -603,11 +896,9 @@ function wizSetWhen(m){wiz.when=new Date(Date.now()-m*60000);wiz.isNow=m===0;wiz
 function wizSetCustom(v){if(!v)return;wiz.when=new Date(v);wiz.isNow=false;showWiz()}
 function wizNext(){
   if(wiz.step===0){if(wiz.type==='diaper'){wiz.step=2;showWiz();return}
-    if(wiz.type==='feed'&&wiz.isNow){wiz.ongoing=true;wiz.durMin=null;wiz.step=10;showWiz();return}
     if(wiz.isNow){wiz.ongoing=true;wiz.durMin=null;wizSave();return}
     wiz.step=1;showWiz()}
   else if(wiz.step===1){if(!wiz.ongoing&&!wiz.durMin){alert('Pick a duration');return}
-    if(wiz.type==='feed'&&!wiz.endId){wiz.step=10;showWiz();return}
     if(wiz.type==='feed'&&wiz.endId&&!wiz.side){wiz.step=3;showWiz();return}
     wizSave()}
   else if(wiz.step===2){if(!wiz.pee&&!wiz.poop){alert('Select at least one');return}wizSave()}}

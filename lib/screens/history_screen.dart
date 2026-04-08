@@ -56,8 +56,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      body: Column(
+    return Column(
         children: [
           SafeArea(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -72,6 +71,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   _Chip(label: '🍼 Feed', selected: _filter == 'feed', onTap: () => setState(() => _filter = 'feed')),
                   const SizedBox(width: 6),
                   _Chip(label: '🧷 Diaper', selected: _filter == 'diaper', onTap: () => setState(() => _filter = 'diaper')),
+                  const SizedBox(width: 6),
+                  _Chip(label: '🥛 Pump', selected: _filter == 'pump', onTap: () => setState(() => _filter = 'pump')),
                 ])),
                 const SizedBox(height: 6),
                 // Time filters
@@ -176,7 +177,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             },
           )),
         ],
-      ),
     );
   }
 
@@ -249,6 +249,13 @@ class _EventTile extends StatelessWidget {
     if (event.duration != null) props.add(event.durationText);
     if (event.side != null) props.add(event.side!);
     if (event.isOngoing) props.add('ongoing');
+    if (event.source == 'pump') props.add('pumped milk');
+    if (event.mlFed != null) props.add('${event.mlFed}ml');
+    if (event.type == EventType.pump) {
+      if (event.ml != null) props.add('${event.ml}ml');
+      if (event.storage != null) props.add(event.storage!);
+      if (event.spoiled) props.add('⚠️ spoiled');
+    }
 
     return ListTile(
       leading: SizedBox(width: 48, child: Text(time, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
@@ -277,6 +284,11 @@ class _EditEventSheetState extends State<_EditEventSheet> {
   late String? _side;
   late bool _pee;
   late bool _poop;
+  late String? _source;
+  late int? _mlFed;
+  late int? _ml;
+  late String? _storage;
+  late bool _spoiled;
   bool _saving = false;
 
   @override
@@ -287,6 +299,11 @@ class _EditEventSheetState extends State<_EditEventSheet> {
     _side = widget.event.side;
     _pee = widget.event.pee;
     _poop = widget.event.poop;
+    _source = widget.event.source;
+    _mlFed = widget.event.mlFed;
+    _ml = widget.event.ml;
+    _storage = widget.event.storage;
+    _spoiled = widget.event.spoiled;
   }
 
   Future<void> _save() async {
@@ -294,10 +311,27 @@ class _EditEventSheetState extends State<_EditEventSheet> {
     try {
       DateTime? endTime;
       if (_duration != null) endTime = _start.add(Duration(minutes: _duration!));
+
+      // Recalculate expiration if pump storage changed
+      DateTime? expiresAt = widget.event.expiresAt;
+      if (widget.event.type == EventType.pump && _storage != widget.event.storage) {
+        expiresAt = BabyEvent.calcExpiration(_start, _storage);
+      }
+
+      // Recalculate pumpId if pump fields changed
+      String? pumpId = widget.event.pumpId;
+      if (widget.event.type == EventType.pump) {
+        final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        pumpId = '${months[_start.month - 1]} ${_start.day} ${_start.hour.toString().padLeft(2, '0')}:${_start.minute.toString().padLeft(2, '0')}${_ml != null ? ' · ${_ml}ml' : ''}${_storage != null ? ' · $_storage' : ''}';
+      }
+
       final updated = BabyEvent(
         id: widget.event.id, type: widget.event.type, startTime: _start,
         endTime: endTime, durationMinutes: _duration, side: _side,
         pee: _pee, poop: _poop, createdBy: widget.event.createdBy, createdAt: widget.event.createdAt,
+        ml: _ml, storage: _storage, expiresAt: expiresAt,
+        spoiled: _spoiled, pumpId: pumpId,
+        source: _source, linkedPumpId: widget.event.linkedPumpId, linkedPumps: widget.event.linkedPumps, mlFed: _mlFed,
       );
       await widget.service.updateEvent(updated);
       if (mounted) Navigator.pop(context, true);
@@ -309,15 +343,19 @@ class _EditEventSheetState extends State<_EditEventSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final hasDur = widget.event.type != EventType.diaper;
+    final isFeed = widget.event.type == EventType.feed;
+    final isPump = widget.event.type == EventType.pump;
+    final hasDur = widget.event.type == EventType.sleep || isFeed;
+
     return Container(
       padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(color: Colors.grey.shade600, borderRadius: BorderRadius.circular(2)))),
         Text('Edit ${widget.event.displayName}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
 
+        // Start time
         ListTile(contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.access_time),
           title: Text(DateFormat('MMM d, HH:mm').format(_start)),
@@ -332,6 +370,7 @@ class _EditEventSheetState extends State<_EditEventSheet> {
           },
         ),
 
+        // Duration (sleep & feed)
         if (hasDur)
           ListTile(contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.timer),
@@ -351,23 +390,87 @@ class _EditEventSheetState extends State<_EditEventSheet> {
             },
           ),
 
-        if (widget.event.type == EventType.feed)
-          ListTile(contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.swap_horiz),
-            title: Text('Side: ${_side ?? "none"}'),
-            trailing: const Icon(Icons.edit),
-            onTap: () => setState(() {
-              if (_side == null) _side = 'left';
-              else if (_side == 'left') _side = 'right';
-              else _side = null;
-            }),
-          ),
+        // Feed: source
+        if (isFeed) ...[
+          Text('Source', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          Row(children: [
+            _editChip('🤱 Breast', _source == 'breast' || _source == null, () => setState(() => _source = 'breast')),
+            const SizedBox(width: 8),
+            _editChip('🥛 Pumped', _source == 'pump', () => setState(() => _source = 'pump')),
+          ]),
+          const SizedBox(height: 10),
+        ],
 
+        // Feed: side (for breast feeds)
+        if (isFeed) ...[
+          Text('Side', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          Row(children: [
+            _editChip('Left', _side == 'left', () => setState(() => _side = _side == 'left' ? null : 'left')),
+            const SizedBox(width: 8),
+            _editChip('Right', _side == 'right', () => setState(() => _side = _side == 'right' ? null : 'right')),
+          ]),
+          const SizedBox(height: 10),
+        ],
+
+        // Feed: ml fed (for pump feeds)
+        if (isFeed && _source == 'pump') ...[
+          Text('ML fed', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          TextField(
+            keyboardType: TextInputType.number,
+            controller: TextEditingController(text: _mlFed?.toString() ?? ''),
+            decoration: InputDecoration(hintText: 'optional', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), isDense: true),
+            onChanged: (v) => _mlFed = int.tryParse(v),
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        // Diaper
         if (widget.event.type == EventType.diaper) ...[
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('💧 Pee'), value: _pee,
             onChanged: (v) => setState(() => _pee = v)),
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('💩 Poop'), value: _poop,
             onChanged: (v) => setState(() => _poop = v)),
+        ],
+
+        // Pump fields
+        if (isPump) ...[
+          Text('Milliliters', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          TextField(
+            keyboardType: TextInputType.number,
+            controller: TextEditingController(text: _ml?.toString() ?? ''),
+            decoration: InputDecoration(hintText: 'e.g. 120', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), isDense: true),
+            onChanged: (v) => _ml = int.tryParse(v),
+          ),
+          const SizedBox(height: 10),
+
+          Text('Side', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          Row(children: [
+            _editChip('Left', _side == 'left', () => setState(() => _side = _side == 'left' ? null : 'left')),
+            const SizedBox(width: 8),
+            _editChip('Right', _side == 'right', () => setState(() => _side = _side == 'right' ? null : 'right')),
+            const SizedBox(width: 8),
+            _editChip('Both', _side == 'both', () => setState(() => _side = _side == 'both' ? null : 'both')),
+          ]),
+          const SizedBox(height: 10),
+
+          Text('Storage', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          const SizedBox(height: 6),
+          Row(children: [
+            _editChip('🏠 Room', _storage == 'room', () => setState(() => _storage = _storage == 'room' ? null : 'room')),
+            const SizedBox(width: 8),
+            _editChip('❄️ Fridge', _storage == 'fridge', () => setState(() => _storage = _storage == 'fridge' ? null : 'fridge')),
+            const SizedBox(width: 8),
+            _editChip('🧊 Freezer', _storage == 'freezer', () => setState(() => _storage = _storage == 'freezer' ? null : 'freezer')),
+          ]),
+          const SizedBox(height: 10),
+
+          SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('🚫 Spoiled'), value: _spoiled,
+            onChanged: (v) => setState(() => _spoiled = v)),
         ],
 
         const SizedBox(height: 16),
@@ -377,7 +480,18 @@ class _EditEventSheetState extends State<_EditEventSheet> {
             ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
             : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         )),
-      ]),
+      ])),
     );
+  }
+
+  Widget _editChip(String label, bool selected, VoidCallback onTap) {
+    final c = Theme.of(context).colorScheme.primary;
+    return GestureDetector(onTap: onTap, child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
+        color: selected ? c.withOpacity(0.12) : null,
+        border: Border.all(color: selected ? c : Colors.grey.withOpacity(0.3), width: selected ? 2 : 1)),
+      child: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: selected ? c : Colors.grey.shade400)),
+    ));
   }
 }

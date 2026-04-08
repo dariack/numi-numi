@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/event.dart';
 
@@ -26,8 +27,8 @@ class FirestoreService {
     await _ref.doc(eventId).delete();
   }
 
-  /// Complete an ongoing event (baby woke up / stopped feeding)
-  Future<void> completeOngoing(String eventId, {int? durationMinutes, String? side}) async {
+  Future<void> completeOngoing(String eventId,
+      {int? durationMinutes, String? side}) async {
     final now = DateTime.now();
     final doc = await _ref.doc(eventId).get();
     if (!doc.exists) return;
@@ -41,6 +42,10 @@ class FirestoreService {
     await _ref.doc(eventId).update(update);
   }
 
+  Future<void> markSpoiled(String eventId) async {
+    await _ref.doc(eventId).update({'spoiled': true});
+  }
+
   // ===== READ =====
 
   Stream<List<BabyEvent>> eventsStream({int limit = 200}) {
@@ -51,7 +56,7 @@ class FirestoreService {
         .map((snap) => snap.docs
             .map((d) {
               try { return BabyEvent.fromFirestore(d); }
-              catch (e) { print('PARSE ERROR: \$e for doc \${d.id} data: \${d.data()}'); return null; }
+              catch (e) { return null; }
             })
             .whereType<BabyEvent>()
             .toList());
@@ -70,149 +75,349 @@ class FirestoreService {
   }
 
   Future<BabyEvent?> getLastOfType(EventType type) async {
-    final snap = await _ref
-        .where('type', isEqualTo: type.name)
-        .orderBy('startTime', descending: true)
-        .limit(1)
-        .get();
+    final snap = await _ref.where('type', isEqualTo: type.name)
+        .orderBy('startTime', descending: true).limit(1).get();
     if (snap.docs.isEmpty) return null;
     try { return BabyEvent.fromFirestore(snap.docs.first); }
     catch (_) { return null; }
   }
 
   Future<List<BabyEvent>> getRecentFeeds(int limit) async {
-    final snap = await _ref
-        .where('type', isEqualTo: 'feed')
-        .orderBy('startTime', descending: true)
-        .limit(limit)
-        .get();
+    final snap = await _ref.where('type', isEqualTo: 'feed')
+        .orderBy('startTime', descending: true).limit(limit).get();
     return snap.docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
-        .whereType<BabyEvent>()
-        .toList();
+        .whereType<BabyEvent>().toList();
   }
 
   Future<BabyEvent?> getOngoing() async {
-    // Find events with no duration and no endTime, type sleep or feed
-    // Check recent sleep events
-    final sleepSnap = await _ref
-        .where('type', isEqualTo: 'sleep')
-        .orderBy('startTime', descending: true)
-        .limit(1)
-        .get();
-    if (sleepSnap.docs.isNotEmpty) {
-      final e = BabyEvent.fromFirestore(sleepSnap.docs.first);
-      if (e.isOngoing) return e;
-    }
-    final feedSnap = await _ref
-        .where('type', isEqualTo: 'feed')
-        .orderBy('startTime', descending: true)
-        .limit(1)
-        .get();
-    if (feedSnap.docs.isNotEmpty) {
-      final e = BabyEvent.fromFirestore(feedSnap.docs.first);
-      if (e.isOngoing) return e;
+    final results = await Future.wait([
+      _ref.where('type', isEqualTo: 'sleep').orderBy('startTime', descending: true).limit(1).get(),
+      _ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true).limit(1).get(),
+    ]);
+    for (final snap in results) {
+      if (snap.docs.isNotEmpty) {
+        final e = BabyEvent.fromFirestore(snap.docs.first);
+        if (e.isOngoing) return e;
+      }
     }
     return null;
   }
 
-  Future<Map<String, dynamic>> getQuickStats() async {
+  // ===== PUMP STOCK =====
+
+  Future<List<Map<String, dynamic>>> getAvailableStock() async {
     final now = DateTime.now();
     final results = await Future.wait([
-      getLastOfType(EventType.sleep),
-      getLastOfType(EventType.feed),
-      getLastOfType(EventType.diaper),
-      getOngoing(),
+      _ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true).get(),
+      _ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true).get(),
     ]);
-    final lastSleep = results[0];
-    final lastFeed = results[1];
-    final lastDiaper = results[2];
-    final ongoing = results[3];
-
-    // 24h diaper counts
-    final dayAgo = now.subtract(const Duration(hours: 24));
-    final diaperSnap = await _ref
-        .where('type', isEqualTo: 'diaper')
-        .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(dayAgo))
-        .orderBy('startTime', descending: true)
-        .get();
-    final diapers24h = diaperSnap.docs
+    final pumps = results[0].docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>().toList();
+    final feeds = results[1].docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
         .whereType<BabyEvent>()
-        .toList();
-    final pees24h = diapers24h.where((e) => e.pee).length;
-    final poops24h = diapers24h.where((e) => e.poop).length;
+        .where((e) => e.source == 'pump').toList();
 
-    // 3 day averages
-    final threeDaysAgo = now.subtract(const Duration(days: 3));
-    final diaper3dSnap = await _ref
-        .where('type', isEqualTo: 'diaper')
-        .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(threeDaysAgo))
-        .orderBy('startTime', descending: true)
-        .get();
-    final diapers3d = diaper3dSnap.docs
-        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
-        .whereType<BabyEvent>()
-        .toList();
-    final pees3d = diapers3d.where((e) => e.pee).length;
-    final poops3d = diapers3d.where((e) => e.poop).length;
-
-    // Last side fed
-    String? lastSide;
-    if (lastFeed?.side != null) {
-      lastSide = lastFeed!.side;
-    } else {
-      // Look further back for a feed with a side
-      final feedSnap = await _ref
-          .where('type', isEqualTo: 'feed')
-          .orderBy('startTime', descending: true)
-          .limit(10)
-          .get();
-      for (final doc in feedSnap.docs) {
+    final usedMl = <String, int>{};
+    for (final f in feeds) {
+      // New multi-pump format
+      if (f.linkedPumps != null) {
         try {
-          final e = BabyEvent.fromFirestore(doc);
-          if (e.side != null) { lastSide = e.side; break; }
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          for (final entry in list) {
+            final pid = entry['id'] as String;
+            final pml = (entry['ml'] as num).toInt();
+            usedMl[pid] = (usedMl[pid] ?? 0) + pml;
+          }
         } catch (_) {}
+      }
+      // Legacy single pump link
+      else if (f.linkedPumpId != null) {
+        usedMl[f.linkedPumpId!] = (usedMl[f.linkedPumpId!] ?? 0) + (f.mlFed ?? 0);
       }
     }
 
-    final countResults = await Future.wait([
-      _ref.where('type', isEqualTo: 'sleep').where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(dayAgo)).orderBy('startTime', descending: true).get(),
-      _ref.where('type', isEqualTo: 'feed').where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(dayAgo)).orderBy('startTime', descending: true).get(),
-      _ref.where('type', isEqualTo: 'sleep').where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(threeDaysAgo)).orderBy('startTime', descending: true).get(),
-      _ref.where('type', isEqualTo: 'feed').where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(threeDaysAgo)).orderBy('startTime', descending: true).get(),
-    ]);
-    final sleeps24h = countResults[0].docs.length;
-    final feeds24h = countResults[1].docs.length;
-    final sleep3dSnap = countResults[2];
-    final feed3dSnap = countResults[3];
+    final stock = <Map<String, dynamic>>[];
+    for (final p in pumps) {
+      if (p.spoiled || p.ml == null) continue;
+      final remaining = p.ml! - (usedMl[p.id] ?? 0);
+      if (remaining <= 0) continue;
+      if (p.expiresAt != null && p.expiresAt!.isBefore(now)) continue;
+      stock.add({'event': p, 'remaining': remaining, 'used': usedMl[p.id] ?? 0});
+    }
+    return stock;
+  }
 
-    // Avg duration (3-day) for sleep and feed
-    final sleep3dEvents = sleep3dSnap.docs
+  Future<Map<String, List<Map<String, dynamic>>>> getStockByStorage() async {
+    final stock = await getAvailableStock();
+    final grouped = <String, List<Map<String, dynamic>>>{'room': [], 'fridge': [], 'freezer': []};
+    for (final s in stock) {
+      final p = s['event'] as BabyEvent;
+      grouped[p.storage ?? 'room']?.add(s);
+    }
+    return grouped;
+  }
+
+  Future<List<Map<String, dynamic>>> getExpirationWarnings() async {
+    final stock = await getAvailableStock();
+    final now = DateTime.now();
+    final warnings = <Map<String, dynamic>>[];
+    for (final s in stock) {
+      final p = s['event'] as BabyEvent;
+      if (p.expiresAt == null) continue;
+      final diff = p.expiresAt!.difference(now);
+      if (diff.inHours <= 24) {
+        final urgency = diff.inHours <= 1 ? 'critical' : diff.inHours <= 4 ? 'warning' : 'info';
+        warnings.add({...s, 'urgency': urgency, 'timeLeft': diff});
+      }
+    }
+    return warnings;
+  }
+
+  // ===== SIDE RECOMMENDATION =====
+
+  /// Smart side recommendation based on lactation consultant guidelines:
+  /// - Alternate starting side for even stimulation
+  /// - Short feed (< 10 min): offer same side (baby didn't reach hindmilk)
+  /// - Very short feed (< 5 min): definitely same side
+  /// - Long gap (> 2h): alternate regardless (breasts refilled)
+  /// - Skip pump-source feeds when determining last breast side
+  /// - Consider recent pumps: if one side was pumped, the other is fuller
+  Future<Map<String, String?>> getSideRecommendation() async {
+    final now = DateTime.now();
+
+    // Get recent breast feeds (skip pump-source feeds) and recent pumps
+    final allRecent = await getRecentFeeds(20);
+    final breastFeeds = allRecent.where((f) => f.source != 'pump' && f.side != null).toList();
+
+    // Also get recent pumps to check if one side was pumped
+    final pumpSnap = await _ref
+        .where('type', isEqualTo: 'pump')
+        .orderBy('startTime', descending: true)
+        .limit(5)
+        .get();
+    final recentPumps = pumpSnap.docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
         .whereType<BabyEvent>()
-        .where((e) => e.durationMinutes != null)
+        .where((p) => p.side != null && p.side != 'both')
         .toList();
-    final sleepAvgDur = sleep3dEvents.isNotEmpty
-        ? sleep3dEvents.map((e) => e.durationMinutes!).reduce((a, b) => a + b) / sleep3dEvents.length
-        : null;
-    final feed3dEvents = feed3dSnap.docs
+
+    if (breastFeeds.isEmpty && recentPumps.isEmpty) {
+      return {'recommendedSide': null, 'recommendationReason': null, 'lastSide': null};
+    }
+
+    // Find last breast-fed side
+    final lastBreastFeed = breastFeeds.isNotEmpty ? breastFeeds.first : null;
+    final lastSide = lastBreastFeed?.side;
+
+    if (lastSide == null) {
+      // No breast feed with side found — check if a pump suggests a side
+      if (recentPumps.isNotEmpty) {
+        final pumpedSide = recentPumps.first.side!;
+        final otherSide = pumpedSide == 'left' ? 'right' : 'left';
+        return {
+          'recommendedSide': otherSide,
+          'recommendationReason': 'Recently pumped $pumpedSide — other side is fuller',
+          'lastSide': null,
+        };
+      }
+      return {'recommendedSide': null, 'recommendationReason': null, 'lastSide': null};
+    }
+
+    final otherSide = lastSide == 'left' ? 'right' : 'left';
+    final lastFeedEnd = lastBreastFeed!.endTime ?? lastBreastFeed.startTime;
+    final timeSince = now.difference(lastFeedEnd);
+    final duration = lastBreastFeed.durationMinutes;
+
+    // Rule 1: Long gap (> 2 hours) → alternate regardless
+    // Breasts have had time to refill evenly
+    if (timeSince.inMinutes > 120) {
+      // But check if one side was pumped in between
+      final pumpsSinceLastFeed = recentPumps
+          .where((p) => p.startTime.isAfter(lastFeedEnd) && p.side != 'both')
+          .toList();
+      if (pumpsSinceLastFeed.isNotEmpty) {
+        final pumpedSide = pumpsSinceLastFeed.first.side!;
+        final fullerSide = pumpedSide == 'left' ? 'right' : 'left';
+        return {
+          'recommendedSide': fullerSide,
+          'recommendationReason': '$pumpedSide was pumped since last feed — $fullerSide is fuller',
+          'lastSide': lastSide,
+        };
+      }
+      return {
+        'recommendedSide': otherSide,
+        'recommendationReason': '${timeSince.inHours}h+ gap — alternate to $otherSide',
+        'lastSide': lastSide,
+      };
+    }
+
+    // Rule 2: Very short feed (< 5 min) → definitely same side
+    if (duration != null && duration < 5) {
+      return {
+        'recommendedSide': lastSide,
+        'recommendationReason': 'Last feed very short (${duration}m) — offer $lastSide again for hindmilk',
+        'lastSide': lastSide,
+      };
+    }
+
+    // Rule 3: Short feed (< 10 min) → same side
+    if (duration != null && duration < 10) {
+      return {
+        'recommendedSide': lastSide,
+        'recommendationReason': 'Last feed short (${duration}m) — offer $lastSide again',
+        'lastSide': lastSide,
+      };
+    }
+
+    // Rule 4: Check if one side was pumped since last feed
+    final pumpsSince = recentPumps
+        .where((p) => p.startTime.isAfter(lastFeedEnd) && p.side != 'both')
+        .toList();
+    if (pumpsSince.isNotEmpty) {
+      final pumpedSide = pumpsSince.first.side!;
+      final fullerSide = pumpedSide == 'left' ? 'right' : 'left';
+      return {
+        'recommendedSide': fullerSide,
+        'recommendationReason': '$pumpedSide was pumped — $fullerSide is fuller',
+        'lastSide': lastSide,
+      };
+    }
+
+    // Rule 5: Normal feed (≥ 10 min) → alternate
+    return {
+      'recommendedSide': otherSide,
+      'recommendationReason': 'Alternating — last was $lastSide${duration != null ? " (${duration}m)" : ""}',
+      'lastSide': lastSide,
+    };
+  }
+
+  // ===== FEED INSIGHTS =====
+
+  Future<Map<String, dynamic>> getFeedInsights() async {
+    final feeds = await getRecentFeeds(20);
+    final now = DateTime.now();
+
+    Duration? timeSinceLast;
+    if (feeds.isNotEmpty) {
+      final lastEnd = feeds.first.endTime ?? feeds.first.startTime;
+      timeSinceLast = now.difference(lastEnd);
+    }
+
+    final sideRec = await getSideRecommendation();
+
+    final today6 = DateTime(now.year, now.month, now.day, 6);
+
+    // Combined ml+duration: 60ml ≈ 30min
+    double feedMinEquiv(BabyEvent f) {
+      if (f.durationMinutes != null) return f.durationMinutes!.toDouble();
+      int ml = f.mlFed ?? 0;
+      if (ml == 0 && f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+        } catch (_) {}
+      }
+      if (ml > 0) return ml / 2.0; // 60ml ≈ 30min
+      return 0;
+    }
+
+    final feedsToday = feeds.where((f) => f.startTime.isAfter(today6)).toList();
+    final todayEquiv = feedsToday.fold<double>(0, (s, f) => s + feedMinEquiv(f));
+    final todayDurOnly = feedsToday.fold<int>(0, (s, f) => s + (f.durationMinutes ?? 0));
+    int todayMlOnly = 0;
+    for (final f in feedsToday) {
+      int ml = f.mlFed ?? 0;
+      if (ml == 0 && f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+        } catch (_) {}
+      }
+      todayMlOnly += ml;
+    }
+
+    final threeDaysAgo = now.subtract(const Duration(days: 3));
+    final feeds3d = feeds.where((f) => f.startTime.isAfter(threeDaysAgo)).toList();
+    final avg3dEquiv = feeds3d.isEmpty ? 0.0 : feeds3d.fold<double>(0, (s, f) => s + feedMinEquiv(f)) / 3.0;
+
+    return {
+      'timeSinceLast': timeSinceLast,
+      ...sideRec,
+      'todayEquiv': todayEquiv,
+      'todayDurOnly': todayDurOnly,
+      'todayMlOnly': todayMlOnly,
+      'avg3dEquiv': avg3dEquiv,
+    };
+  }
+
+  DateTime _getPeriodStart(DateTime dt) {
+    final h = dt.hour;
+    if (h >= 0 && h < 6) return DateTime(dt.year, dt.month, dt.day, 0);
+    if (h >= 6 && h < 12) return DateTime(dt.year, dt.month, dt.day, 6);
+    if (h >= 12 && h < 18) return DateTime(dt.year, dt.month, dt.day, 12);
+    return DateTime(dt.year, dt.month, dt.day, 18);
+  }
+
+  String _getPeriodName(DateTime dt) {
+    final h = dt.hour;
+    if (h >= 0 && h < 6) return 'Night';
+    if (h >= 6 && h < 12) return 'Morning';
+    if (h >= 12 && h < 18) return 'Afternoon';
+    return 'Evening';
+  }
+
+  // ===== QUICK STATS (optimized — max parallel, fewer queries) =====
+
+  Future<Map<String, dynamic>> getQuickStats() async {
+    final now = DateTime.now();
+    final dayAgo = now.subtract(const Duration(hours: 24));
+    final threeDaysAgo = now.subtract(const Duration(days: 3));
+
+    // All queries in parallel
+    final results = await Future.wait([
+      getLastOfType(EventType.sleep),                  // 0
+      getLastOfType(EventType.feed),                   // 1
+      getLastOfType(EventType.diaper),                 // 2
+      getOngoing(),                                     // 3
+      getLastOfType(EventType.pump),                   // 4
+      _ref.where('type', isEqualTo: 'diaper')          // 5: diapers 3d (superset of 24h)
+          .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(threeDaysAgo))
+          .orderBy('startTime', descending: true).get(),
+      _ref.where('type', isEqualTo: 'pump')            // 6: pumps 24h
+          .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(dayAgo))
+          .orderBy('startTime', descending: true).get(),
+      getSideRecommendation(),                          // 7
+    ]);
+
+    final lastSleep = results[0] as BabyEvent?;
+    final lastFeed = results[1] as BabyEvent?;
+    final lastDiaper = results[2] as BabyEvent?;
+    final ongoing = results[3] as BabyEvent?;
+    final lastPump = results[4] as BabyEvent?;
+    final diaper3dSnap = results[5] as QuerySnapshot;
+    final pump24hSnap = results[6] as QuerySnapshot;
+    final sideRec = results[7] as Map<String, String?>;
+
+    // Diapers: 3d superset, filter for 24h
+    final diapers3d = diaper3dSnap.docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
-        .whereType<BabyEvent>()
-        .where((e) => e.durationMinutes != null)
-        .toList();
-    final feedAvgDur = feed3dEvents.isNotEmpty
-        ? feed3dEvents.map((e) => e.durationMinutes!).reduce((a, b) => a + b) / feed3dEvents.length
-        : null;
+        .whereType<BabyEvent>().toList();
+    final diapers24h = diapers3d.where((e) => e.startTime.isAfter(dayAgo)).toList();
+    final pees24h = diapers24h.where((e) => e.pee).length;
+    final poops24h = diapers24h.where((e) => e.poop).length;
+    final pees3d = diapers3d.where((e) => e.pee).length;
+    final poops3d = diapers3d.where((e) => e.poop).length;
+
+    // Pump 24h
+    final pumps24h = pump24hSnap.docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>().toList();
 
     return {
       'lastSleep': lastSleep,
-      'sleeps24h': sleeps24h,
-      'feeds24h': feeds24h,
-      'sleepsAvg3d': sleep3dSnap.docs.length / 3.0,
-      'feedsAvg3d': feed3dSnap.docs.length / 3.0,
-      'sleepAvgDur3d': sleepAvgDur,
-      'feedAvgDur3d': feedAvgDur,
       'lastFeed': lastFeed,
       'lastDiaper': lastDiaper,
       'ongoing': ongoing,
@@ -220,7 +425,12 @@ class FirestoreService {
       'poops24h': poops24h,
       'peesAvg3d': pees3d / 3.0,
       'poopsAvg3d': poops3d / 3.0,
-      'lastSide': lastSide,
+      'lastSide': sideRec['lastSide'],
+      'recommendedSide': sideRec['recommendedSide'],
+      'recommendationReason': sideRec['recommendationReason'],
+      'lastPump': lastPump,
+      'pumpCount24h': pumps24h.length,
+      'pumpMl24h': pumps24h.fold<int>(0, (s, e) => s + (e.ml ?? 0)),
     };
   }
 
@@ -230,112 +440,47 @@ class FirestoreService {
     final cutoff = DateTime(2026, 3, 22);
     final oldSnap = await _ref.orderBy('timestamp', descending: false).get();
     int migrated = 0;
-
     final oldEvents = <Map<String, dynamic>>[];
     for (final doc in oldSnap.docs) {
       final data = doc.data() as Map<String, dynamic>;
-      // Skip already migrated events (they have 'startTime' instead of 'timestamp')
       if (data.containsKey('startTime')) continue;
       if (!data.containsKey('timestamp')) continue;
       final ts = (data['timestamp'] as Timestamp).toDate();
-      if (ts.isBefore(cutoff)) {
-        await doc.reference.delete(); // delete old data before cutoff
-        continue;
-      }
+      if (ts.isBefore(cutoff)) { await doc.reference.delete(); continue; }
       oldEvents.add({...data, '_id': doc.id, '_ts': ts});
     }
-
-    // Sort by timestamp
     oldEvents.sort((a, b) => (a['_ts'] as DateTime).compareTo(b['_ts'] as DateTime));
-
-    // Pair start/end events
     final processed = <String>{};
-
     for (int i = 0; i < oldEvents.length; i++) {
       final e = oldEvents[i];
       if (processed.contains(e['_id'])) continue;
       final type = e['type'] as String;
       final ts = e['_ts'] as DateTime;
-
       if (type == 'sleep_start') {
-        // Find matching sleep_end
-        DateTime? endTime;
-        int? dur;
+        DateTime? endTime; int? dur;
         for (int j = i + 1; j < oldEvents.length; j++) {
-          if (oldEvents[j]['type'] == 'sleep_end') {
-            endTime = oldEvents[j]['_ts'] as DateTime;
-            dur = endTime.difference(ts).inMinutes;
-            processed.add(oldEvents[j]['_id']);
-            break;
-          }
-          if (oldEvents[j]['type'] == 'sleep_start') break; // another start before end
+          if (oldEvents[j]['type'] == 'sleep_end') { endTime = oldEvents[j]['_ts'] as DateTime; dur = endTime.difference(ts).inMinutes; processed.add(oldEvents[j]['_id']); break; }
+          if (oldEvents[j]['type'] == 'sleep_start') break;
         }
-        await _ref.add({
-          'type': 'sleep',
-          'startTime': Timestamp.fromDate(ts),
-          if (endTime != null) 'endTime': Timestamp.fromDate(endTime),
-          if (dur != null) 'duration': dur,
-          'pee': false, 'poop': false,
-          'createdBy': e['createdBy'] ?? 'migrated',
-          'createdAt': Timestamp.fromDate(DateTime.now()),
-        });
-        processed.add(e['_id']);
-        migrated++;
+        await _ref.add({'type': 'sleep', 'startTime': Timestamp.fromDate(ts), if (endTime != null) 'endTime': Timestamp.fromDate(endTime), if (dur != null) 'duration': dur, 'pee': false, 'poop': false, 'createdBy': e['createdBy'] ?? 'migrated', 'createdAt': Timestamp.fromDate(DateTime.now())});
+        processed.add(e['_id']); migrated++;
       } else if (type == 'feed_start') {
-        DateTime? endTime;
-        int? dur;
+        DateTime? endTime; int? dur;
         for (int j = i + 1; j < oldEvents.length; j++) {
-          if (oldEvents[j]['type'] == 'feed_end') {
-            endTime = oldEvents[j]['_ts'] as DateTime;
-            dur = endTime.difference(ts).inMinutes;
-            processed.add(oldEvents[j]['_id']);
-            break;
-          }
+          if (oldEvents[j]['type'] == 'feed_end') { endTime = oldEvents[j]['_ts'] as DateTime; dur = endTime.difference(ts).inMinutes; processed.add(oldEvents[j]['_id']); break; }
           if (oldEvents[j]['type'] == 'feed_start') break;
         }
-        await _ref.add({
-          'type': 'feed',
-          'startTime': Timestamp.fromDate(ts),
-          if (endTime != null) 'endTime': Timestamp.fromDate(endTime),
-          if (dur != null) 'duration': dur,
-          if (e['side'] != null) 'side': e['side'],
-          'pee': false, 'poop': false,
-          'createdBy': e['createdBy'] ?? 'migrated',
-          'createdAt': Timestamp.fromDate(DateTime.now()),
-        });
-        processed.add(e['_id']);
-        migrated++;
+        await _ref.add({'type': 'feed', 'startTime': Timestamp.fromDate(ts), if (endTime != null) 'endTime': Timestamp.fromDate(endTime), if (dur != null) 'duration': dur, if (e['side'] != null) 'side': e['side'], 'pee': false, 'poop': false, 'createdBy': e['createdBy'] ?? 'migrated', 'createdAt': Timestamp.fromDate(DateTime.now())});
+        processed.add(e['_id']); migrated++;
       } else if (type == 'pee') {
-        await _ref.add({
-          'type': 'diaper',
-          'startTime': Timestamp.fromDate(ts),
-          'pee': true, 'poop': false,
-          'createdBy': e['createdBy'] ?? 'migrated',
-          'createdAt': Timestamp.fromDate(DateTime.now()),
-        });
-        processed.add(e['_id']);
-        migrated++;
+        await _ref.add({'type': 'diaper', 'startTime': Timestamp.fromDate(ts), 'pee': true, 'poop': false, 'createdBy': e['createdBy'] ?? 'migrated', 'createdAt': Timestamp.fromDate(DateTime.now())});
+        processed.add(e['_id']); migrated++;
       } else if (type == 'poop') {
-        await _ref.add({
-          'type': 'diaper',
-          'startTime': Timestamp.fromDate(ts),
-          'pee': false, 'poop': true,
-          'createdBy': e['createdBy'] ?? 'migrated',
-          'createdAt': Timestamp.fromDate(DateTime.now()),
-        });
-        processed.add(e['_id']);
-        migrated++;
-      } else if (type == 'sleep_end' || type == 'feed_end') {
-        // Orphaned end without start — skip
-        processed.add(e['_id']);
-      }
+        await _ref.add({'type': 'diaper', 'startTime': Timestamp.fromDate(ts), 'pee': false, 'poop': true, 'createdBy': e['createdBy'] ?? 'migrated', 'createdAt': Timestamp.fromDate(DateTime.now())});
+        processed.add(e['_id']); migrated++;
+      } else if (type == 'sleep_end' || type == 'feed_end') { processed.add(e['_id']); }
     }
-
-    // Delete all old-format events
-    for (final e in oldEvents) {
-      await _ref.doc(e['_id'] as String).delete();
-    }
-
+    for (final e in oldEvents) { await _ref.doc(e['_id'] as String).delete(); }
     return migrated;
   }
 }
