@@ -51,6 +51,7 @@ class BabyEvent {
 
   bool get isOngoing =>
       (type == EventType.sleep || type == EventType.feed) &&
+      source != 'pump' &&
       durationMinutes == null &&
       endTime == null;
 

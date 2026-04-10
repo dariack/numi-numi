@@ -980,7 +980,14 @@ function saveEdit(id,type){var st=new Date(document.getElementById('ed-st').valu
   db.collection('families').doc(fid).collection('events').doc(id).update(upd).then(function(){closeWiz()})}
 
 // ==================== HELPERS ====================
-function findOngoing(){return allEv.find(function(e){return(e.type==='sleep'||e.type==='feed')&&!e.duration&&!e.endTime})||null}
+function findOngoing(){var now=Date.now();return allEv.find(function(e){
+  if(e.type!=='sleep'&&e.type!=='feed')return false;
+  if(e.duration!==undefined&&e.duration!==null)return false;
+  if(e.endTime)return false;
+  if(e.source==='pump')return false;
+  // Sanity: if started more than 12h ago, it's stale, not really ongoing
+  if(now-e.startTime.getTime()>43200000)return false;
+  return true})||null}
 function lastOf(type){return allEv.find(function(e){return e.type===type})||null}
 function displayName(e){if(e.type==='sleep')return '😴 Sleep';if(e.type==='feed')return e.source==='pump'?'🧴 Pumped Feed':'🍼 Feed';
   if(e.type==='diaper'){if(e.pee&&e.poop)return '🧷 Pee + Poop';if(e.poop)return '💩 Poop';if(e.pee)return '💧 Pee';return '🧷 Diaper'}

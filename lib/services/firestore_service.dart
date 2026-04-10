@@ -14,23 +14,48 @@ class FirestoreService {
   // ===== WRITE =====
 
   Future<BabyEvent> addEvent(BabyEvent event) async {
-    final docRef = await _ref.add(event.toFirestore());
-    final doc = await docRef.get();
-    return BabyEvent.fromFirestore(doc);
+    // Use Firestore's local cache — don't await server confirmation
+    // This allows offline writes that sync when back online
+    final docRef = _ref.doc(); // generate ID locally
+    final data = event.toFirestore();
+    docRef.set(data); // fire-and-forget — Firestore queues it for sync
+    // Return the event with the local ID immediately
+    return BabyEvent(
+      id: docRef.id,
+      type: event.type,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      durationMinutes: event.durationMinutes,
+      side: event.side,
+      pee: event.pee,
+      poop: event.poop,
+      createdBy: event.createdBy,
+      ml: event.ml,
+      storage: event.storage,
+      expiresAt: event.expiresAt,
+      spoiled: event.spoiled,
+      pumpId: event.pumpId,
+      source: event.source,
+      linkedPumpId: event.linkedPumpId,
+      linkedPumps: event.linkedPumps,
+      mlFed: event.mlFed,
+    );
   }
 
   Future<void> updateEvent(BabyEvent event) async {
-    await _ref.doc(event.id).set(event.toFirestore());
+    // Fire-and-forget for offline support
+    _ref.doc(event.id).set(event.toFirestore());
   }
 
   Future<void> deleteEvent(String eventId) async {
-    await _ref.doc(eventId).delete();
+    _ref.doc(eventId).delete();
   }
 
   Future<void> completeOngoing(String eventId,
       {int? durationMinutes, String? side}) async {
     final now = DateTime.now();
-    final doc = await _ref.doc(eventId).get();
+    // Read from cache if offline
+    final doc = await _ref.doc(eventId).get(const GetOptions(source: Source.cache)).catchError((_) => _ref.doc(eventId).get());
     if (!doc.exists) return;
     final event = BabyEvent.fromFirestore(doc);
     final dur = durationMinutes ?? now.difference(event.startTime).inMinutes;
@@ -39,11 +64,11 @@ class FirestoreService {
       'duration': dur,
     };
     if (side != null) update['side'] = side;
-    await _ref.doc(eventId).update(update);
+    _ref.doc(eventId).update(update); // fire-and-forget
   }
 
   Future<void> markSpoiled(String eventId) async {
-    await _ref.doc(eventId).update({'spoiled': true});
+    _ref.doc(eventId).update({'spoiled': true});
   }
 
   // ===== READ =====
@@ -74,31 +99,59 @@ class FirestoreService {
             .toList());
   }
 
+  // Helper: try cache first, fall back to server. Prevents offline hangs.
+  Future<QuerySnapshot> _getWithCache(Query query) async {
+    try {
+      final cached = await query.get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) {
+        // Also trigger a background server fetch to refresh cache
+        query.get(const GetOptions(source: Source.server)).catchError((_) => cached);
+        return cached;
+      }
+    } catch (_) {}
+    // Cache empty or failed — try server (will hang offline but no choice)
+    return query.get();
+  }
+
+  Future<DocumentSnapshot> _getDocWithCache(DocumentReference ref) async {
+    try {
+      return await ref.get(const GetOptions(source: Source.cache));
+    } catch (_) {}
+    return ref.get();
+  }
+
   Future<BabyEvent?> getLastOfType(EventType type) async {
-    final snap = await _ref.where('type', isEqualTo: type.name)
-        .orderBy('startTime', descending: true).limit(1).get();
+    final snap = await _getWithCache(_ref.where('type', isEqualTo: type.name)
+        .orderBy('startTime', descending: true).limit(1));
     if (snap.docs.isEmpty) return null;
     try { return BabyEvent.fromFirestore(snap.docs.first); }
     catch (_) { return null; }
   }
 
   Future<List<BabyEvent>> getRecentFeeds(int limit) async {
-    final snap = await _ref.where('type', isEqualTo: 'feed')
-        .orderBy('startTime', descending: true).limit(limit).get();
+    final snap = await _getWithCache(_ref.where('type', isEqualTo: 'feed')
+        .orderBy('startTime', descending: true).limit(limit));
     return snap.docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
         .whereType<BabyEvent>().toList();
   }
 
   Future<BabyEvent?> getOngoing() async {
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(hours: 12));
     final results = await Future.wait([
-      _ref.where('type', isEqualTo: 'sleep').orderBy('startTime', descending: true).limit(1).get(),
-      _ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true).limit(1).get(),
+      _getWithCache(_ref.where('type', isEqualTo: 'sleep').orderBy('startTime', descending: true).limit(1)),
+      _getWithCache(_ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true).limit(1)),
     ]);
     for (final snap in results) {
       if (snap.docs.isNotEmpty) {
         final e = BabyEvent.fromFirestore(snap.docs.first);
-        if (e.isOngoing) return e;
+        if (!e.isOngoing) continue;
+        // Skip pump-source feeds (they have duration 0 but just in case)
+        if (e.source == 'pump') continue;
+        // Skip stale events older than 12h — likely a missed end
+        if (e.startTime.isBefore(cutoff)) continue;
+        return e;
       }
     }
     return null;
@@ -109,8 +162,8 @@ class FirestoreService {
   Future<List<Map<String, dynamic>>> getAvailableStock() async {
     final now = DateTime.now();
     final results = await Future.wait([
-      _ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true).get(),
-      _ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true).get(),
+      _getWithCache(_ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true)),
+      _getWithCache(_ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true)),
     ]);
     final pumps = results[0].docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
@@ -193,11 +246,10 @@ class FirestoreService {
     final breastFeeds = allRecent.where((f) => f.source != 'pump' && f.side != null).toList();
 
     // Also get recent pumps to check if one side was pumped
-    final pumpSnap = await _ref
+    final pumpSnap = await _getWithCache(_ref
         .where('type', isEqualTo: 'pump')
         .orderBy('startTime', descending: true)
-        .limit(5)
-        .get();
+        .limit(5));
     final recentPumps = pumpSnap.docs
         .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
         .whereType<BabyEvent>()
@@ -383,12 +435,12 @@ class FirestoreService {
       getLastOfType(EventType.diaper),                 // 2
       getOngoing(),                                     // 3
       getLastOfType(EventType.pump),                   // 4
-      _ref.where('type', isEqualTo: 'diaper')          // 5: diapers 3d (superset of 24h)
+      _getWithCache(_ref.where('type', isEqualTo: 'diaper')  // 5
           .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(threeDaysAgo))
-          .orderBy('startTime', descending: true).get(),
-      _ref.where('type', isEqualTo: 'pump')            // 6: pumps 24h
+          .orderBy('startTime', descending: true)),
+      _getWithCache(_ref.where('type', isEqualTo: 'pump')    // 6
           .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(dayAgo))
-          .orderBy('startTime', descending: true).get(),
+          .orderBy('startTime', descending: true)),
       getSideRecommendation(),                          // 7
     ]);
 
