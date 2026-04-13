@@ -147,6 +147,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <script>
 var FC={apiKey:"AIzaSyAbCR1lJ3JIyHyRsV5IboL1h4LEwe9EQ2E",authDomain:"yuli-tracker.firebaseapp.com",projectId:"yuli-tracker",storageBucket:"yuli-tracker.firebasestorage.app",messagingSenderId:"842997071492",appId:"1:842997071492:web:e460e8f21d193e2bb6ccd1"};
 firebase.initializeApp(FC);var db=firebase.firestore();
+db.enablePersistence({synchronizeTabs:true}).catch(function(){});
 var fid=localStorage.getItem('familyId')||'',unsub=null,allEv=[],tab='home',typeF='all',timeF='all',charts={},rd=7;
 var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false};
 var cfgUnsub=null;
@@ -184,113 +185,108 @@ function updateNav(){
   sb.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===tab)});
 }
 function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<div class="loading"><div class="sp"></div>Loading...</div>';
+  var firstLoad=true;
   unsub=db.collection('families').doc(fid).collection('events').orderBy('startTime','desc').limit(500).onSnapshot(function(s){
     allEv=[];s.forEach(function(d){try{var data=d.data();if(!data.startTime)return;allEv.push(Object.assign({id:d.id},data,{startTime:data.startTime.toDate(),endTime:data.endTime?data.endTime.toDate():null,expiresAt:data.expiresAt?data.expiresAt.toDate():null}))}catch(e){}});
-    render()},function(e){document.getElementById('main').innerHTML='<div class="loading">Error: '+e.message+'</div>'})}
+    if(firstLoad){firstLoad=false;render();}
+    else if(tab==='home'){renderHomeStats();}  // in-place update, no full re-render
+    else{render();}
+  },function(e){document.getElementById('main').innerHTML='<div class="loading">Error: '+e.message+'</div>'})}
 
 function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
 function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
   if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='settings')renderSettings()}
 
 // ==================== HOME ====================
-function renderHome(){
-  var now=new Date(),h='';
-  var ong=findOngoing();
-  var ls=cfg.trackSleep?lastOf('sleep'):null,lf=cfg.trackFeed?lastOf('feed'):null,ld=cfg.trackDiaper?lastOf('diaper'):null;
-  var d24=new Date(now-864e5),d3=new Date(now-2592e5);
-  var lastSide=null;if(cfg.trackFeed)allEv.forEach(function(e){if(!lastSide&&e.type==='feed'&&e.side)lastSide=e.side});
+// Compute stats from allEv — pure JS, no network calls
+function computeHomeStats(){
+  var now=new Date(),d24=new Date(now-864e5),d3=new Date(now-2592e5),cutoff12h=new Date(now-43200000);
+  var ls=null,lf=null,ld=null,lp=null,ong=null;
+  for(var i=0;i<allEv.length;i++){var e=allEv[i];
+    if(!ls&&e.type==='sleep')ls=e;if(!lf&&e.type==='feed')lf=e;if(!ld&&e.type==='diaper')ld=e;if(!lp&&e.type==='pump')lp=e;
+    if(!ong&&(e.type==='sleep'||e.type==='feed')&&e.source!=='pump'&&!e.endTime&&e.duration==null&&e.startTime>cutoff12h)ong=e;
+    if(ls&&lf&&ld&&lp&&ong)break;}
+  // Diapers
+  var pees24=0,poops24=0;
+  allEv.forEach(function(e){if(e.type==='diaper'&&e.startTime>d24){if(e.pee)pees24++;if(e.poop)poops24++;}});
+  // Side recommendation
+  var recSide=null,recReason=null;
+  var breastFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source!=='pump'&&e.side}).slice(0,20);
+  var recentPumps=allEv.filter(function(e){return e.type==='pump'&&e.side&&e.side!=='both'}).slice(0,5);
+  var lastBF=breastFeeds[0];
+  if(lastBF){
+    var lastSd=lastBF.side,otherSd=lastSd==='left'?'right':'left';
+    var lastEnd=lastBF.endTime||lastBF.startTime,minsSince=Math.round((Date.now()-lastEnd.getTime())/60000);
+    var dur=lastBF.duration||null,pumpsSince=recentPumps.filter(function(p){return p.startTime>lastEnd&&p.side!=='both'});
+    if(minsSince>120){if(pumpsSince.length){var ps=pumpsSince[0].side;recSide=ps==='left'?'right':'left';recReason=ps+' was pumped since last feed — other side is fuller';}
+      else{recSide=otherSd;recReason=Math.floor(minsSince/60)+'h+ gap — alternate to '+otherSd;}}
+    else if(dur!==null&&dur<5){recSide=lastSd;recReason='Last feed very short ('+dur+'m) — offer '+lastSd+' again for hindmilk';}
+    else if(dur!==null&&dur<10){recSide=lastSd;recReason='Last feed short ('+dur+'m) — offer '+lastSd+' again';}
+    else if(pumpsSince.length){var ps2=pumpsSince[0].side;recSide=ps2==='left'?'right':'left';recReason=ps2+' was pumped — other side is fuller';}
+    else{recSide=otherSd;recReason='Alternating — last was '+lastSd+(dur?' ('+dur+'m)':'');}
+  }else if(recentPumps.length){var ps3=recentPumps[0].side;recSide=ps3==='left'?'right':'left';recReason='Recently pumped '+ps3+' — other side is fuller';}
+  // Stock
+  var pumpFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'});
+  var usedMl={};pumpFeeds.forEach(function(f){
+    if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp2){usedMl[lp2.id]=(usedMl[lp2.id]||0)+lp2.ml})}catch(err){}}
+    else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0);}});
+  var stockByType={room:0,fridge:0,freezer:0};
+  allEv.forEach(function(e){if(e.type!=='pump'||e.spoiled||!e.ml)return;var rem=e.ml-(usedMl[e.id]||0);if(rem<=0)return;if(e.expiresAt&&e.expiresAt<now)return;var st=e.storage||'room';stockByType[st]=(stockByType[st]||0)+rem;});
+  return {ls:ls,lf:lf,ld:ld,lp:lp,ong:ong,recSide:recSide,recReason:recReason,stockByType:stockByType};}
 
-  h+='<div class="page-title">Dashboard</div>';
-  h+='<div class="stats-section"><div class="section-label">Quick Stats</div>';
+// Update only the stats area without rebuilding the whole page
+function renderHomeStats(){
+  var el=document.getElementById('home-stats');
+  if(!el){render();return;}  // fallback: full render if structure not ready
+  el.innerHTML=buildHomeStatsHtml();}
+
+function buildHomeStatsHtml(){
+  var s=computeHomeStats(),now=new Date(),h='';
+  var ong=s.ong;
   if(ong){var dur=fmt(now-ong.startTime);var cls=ong.type==='sleep'?'':'feed';var st=ong.side?' ('+ong.side+')':'';
-    h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>'}
-
+    h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>';}
   if(cfg.trackSleep){
     h+='<div class="stat"><div class="em">😴</div><div class="info"><div class="t">Sleep</div>';
-    if(ls){var endT=ls.endTime||ls.startTime;h+='<div class="l">Last: '+fmt(Date.now()-endT.getTime())+' ago</div>'}
-    else h+='<div class="l">No data</div>';
-    h+='</div></div>';
-  }
+    if(s.ls){var endT=s.ls.endTime||s.ls.startTime;h+='<div class="l">Last: '+fmt(Date.now()-endT.getTime())+' ago</div>';}
+    else h+='<div class="l">No data</div>';h+='</div></div>';}
   if(cfg.trackFeed){
     var recentFeeds=allEv.filter(function(e){return e.type==='feed'}).slice(0,2);
-    // Smart side recommendation
-    var recSide=null,recReason=null;
-    var breastFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source!=='pump'&&e.side});
-    var recentPumps=allEv.filter(function(e){return e.type==='pump'&&e.side&&e.side!=='both'}).slice(0,5);
-    var lastBF=breastFeeds[0];
-    if(lastBF){
-      var lastSd=lastBF.side;var otherSd=lastSd==='left'?'right':'left';
-      var lastEnd=lastBF.endTime||lastBF.startTime;
-      var minsSince=Math.round((Date.now()-lastEnd.getTime())/60000);
-      var dur=lastBF.duration||null;
-      // Pumps since last feed
-      var pumpsSince=recentPumps.filter(function(p){return p.startTime>lastEnd&&p.side!=='both'});
-      if(minsSince>120){
-        if(pumpsSince.length){var ps=pumpsSince[0].side;var fs=ps==='left'?'right':'left';recSide=fs;recReason=ps+' was pumped since last feed — '+fs+' is fuller'}
-        else{recSide=otherSd;recReason=Math.floor(minsSince/60)+'h+ gap — alternate to '+otherSd}
-      }else if(dur!==null&&dur<5){recSide=lastSd;recReason='Last feed very short ('+dur+'m) — offer '+lastSd+' again for hindmilk'}
-      else if(dur!==null&&dur<10){recSide=lastSd;recReason='Last feed short ('+dur+'m) — offer '+lastSd+' again'}
-      else if(pumpsSince.length){var ps2=pumpsSince[0].side;var fs2=ps2==='left'?'right':'left';recSide=fs2;recReason=ps2+' was pumped — '+fs2+' is fuller'}
-      else{recSide=otherSd;recReason='Alternating — last was '+lastSd+(dur?' ('+dur+'m)':'')}
-    }else if(recentPumps.length){
-      var ps3=recentPumps[0].side;var fs3=ps3==='left'?'right':'left';
-      recSide=fs3;recReason='Recently pumped '+ps3+' — other side is fuller';
-    }
     h+='<div class="stat"><div class="em">🍼</div><div class="info"><div class="t">Feed</div>';
-    if(!recentFeeds.length){h+='<div class="l">No data</div>'}
-    else{
-      recentFeeds.forEach(function(f,i){
-        var endT2=f.endTime||f.startTime;var ago=fmt(Date.now()-endT2.getTime());
-        var detail=ago+' ago';
-        if(f.duration)detail+=' · '+fmtMin(f.duration);
-        else if(f.mlFed)detail+=' · '+f.mlFed+'ml';
-        else if(f.source==='pump'&&f.linkedPumps){try{var tot=JSON.parse(f.linkedPumps).reduce(function(s,x){return s+x.ml},0);if(tot)detail+=' · '+tot+'ml'}catch(e){}}
-        if(f.side)detail+=' · '+f.side;
-        if(!f.endTime&&!f.duration&&f.source!=='pump')detail+=' · ongoing';
-        h+='<div class="l">'+(i===0?'':'prev: ')+detail+'</div>';
-      });
-    }
-    if(recSide)h+='<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:0.85rem;padding:4px 10px;border-radius:8px;margin-top:4px">🤱 Next: '+recSide.toUpperCase()+'</div><div class="l2">'+recReason+'</div>';
-    h+='</div></div>';
-  }
+    if(!recentFeeds.length){h+='<div class="l">No data</div>';}
+    else{recentFeeds.forEach(function(f,i){var endT2=f.endTime||f.startTime;var ago=fmt(Date.now()-endT2.getTime());var detail=ago+' ago';
+      if(f.duration)detail+=' · '+fmtMin(f.duration);else if(f.mlFed)detail+=' · '+f.mlFed+'ml';
+      else if(f.source==='pump'&&f.linkedPumps){try{var tot=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0);if(tot)detail+=' · '+tot+'ml';}catch(err){}}
+      if(f.side)detail+=' · '+f.side;if(!f.endTime&&!f.duration&&f.source!=='pump')detail+=' · ongoing';
+      h+='<div class="l">'+(i===0?'':'prev: ')+detail+'</div>';});}
+    if(s.recSide)h+='<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:0.85rem;padding:4px 10px;border-radius:8px;margin-top:4px">🤱 Next: '+s.recSide.toUpperCase()+'</div><div class="l2">'+s.recReason+'</div>';
+    h+='</div></div>';}
   if(cfg.trackDiaper){
     h+='<div class="stat"><div class="em">🧷</div><div class="info"><div class="t">Diaper</div>';
-    if(ld){var w=ld.pee&&ld.poop?'pee+poop':ld.poop?'poop':'pee';
-      h+='<div class="l">Last: '+fmt(Date.now()-ld.startTime.getTime())+' ago ('+w+')</div>'}
-    else h+='<div class="l">No data</div>';
-    h+='</div></div>';
-  }
+    if(s.ld){var w=s.ld.pee&&s.ld.poop?'pee+poop':s.ld.poop?'poop':'pee';h+='<div class="l">Last: '+fmt(Date.now()-s.ld.startTime.getTime())+' ago ('+w+')</div>';}
+    else h+='<div class="l">No data</div>';h+='</div></div>';}
   if(cfg.trackPump){
-    var allPumps=allEv.filter(function(e){return e.type==='pump'&&!e.spoiled&&e.ml});
-    var pumpFeeds=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'});
-    var usedMl={};pumpFeeds.forEach(function(f){
-      if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){usedMl[lp.id]=(usedMl[lp.id]||0)+lp.ml})}catch(e){}}
-      else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0)}
-    });
-    var stockByType={room:0,fridge:0,freezer:0};var now2=new Date();
-    allPumps.forEach(function(p){var rem=p.ml-(usedMl[p.id]||0);if(rem<=0)return;if(p.expiresAt&&p.expiresAt<now2)return;var st=p.storage||'room';stockByType[st]+=rem});
-    var stockParts=[];
-    if(stockByType.room>0)stockParts.push('🏠 '+stockByType.room+'ml');
-    if(stockByType.fridge>0)stockParts.push('❄️ '+stockByType.fridge+'ml');
-    if(stockByType.freezer>0)stockParts.push('🧊 '+stockByType.freezer+'ml');
-    var totalStock=stockByType.room+stockByType.fridge+stockByType.freezer;
+    var st=s.stockByType,total=(st.room||0)+(st.fridge||0)+(st.freezer||0);
+    var parts=[];if(st.room>0)parts.push('🏠 '+st.room+'ml');if(st.fridge>0)parts.push('❄️ '+st.fridge+'ml');if(st.freezer>0)parts.push('🧊 '+st.freezer+'ml');
     h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump Stock</div>';
-    if(totalStock>0)h+='<div class="l">'+totalStock+'ml — '+stockParts.join(' · ')+'</div>';
-    else h+='<div class="l">Empty</div>';
-    h+='</div></div>';
-  }
-  h+='</div>';
+    h+=total>0?'<div class="l">'+total+'ml — '+parts.join(' · ')+'</div>':'<div class="l">Empty</div>';
+    h+='</div></div>';}
+  return h;}
 
+function renderHome(){
+  var now=new Date(),h='',s=computeHomeStats(),ong=s.ong;
+  h+='<div class="page-title">Dashboard</div>';
+  h+='<div class="stats-section"><div class="section-label">Quick Stats</div>';
+  h+='<div id="home-stats">'+buildHomeStatsHtml()+'</div>';
+  h+='</div>';
+  var sa=ong&&ong.type==='sleep',fa=ong&&ong.type==='feed';
   h+='<div class="section-label">What\'s happening?</div>';
   h+='<div class="log-grid">';
-  var sa=ong&&ong.type==='sleep',fa=ong&&ong.type==='feed';
-  if(cfg.trackSleep)h+='<div class="lbtn '+(sa?'active':'')+'" data-t="sleep" onclick="openLog(\'sleep\')"><div class="le">'+(sa?'⏰':'😴')+'</div><div class="ll">'+(sa?'End Sleep':'Sleep')+'</div></div>';
-  if(cfg.trackFeed)h+='<div class="lbtn '+(fa?'active-f':'')+'" data-t="feed" onclick="openLog(\'feed\')"><div class="le">'+(fa?'⏰':'🍼')+'</div><div class="ll">'+(fa?'End Feed':'Feed')+'</div></div>';
+  if(cfg.trackSleep)h+='<div class="lbtn '+(sa?'active':'')+'\" data-t="sleep" onclick="openLog(\'sleep\')"><div class="le">'+(sa?'⏰':'😴')+'</div><div class="ll">'+(sa?'End Sleep':'Sleep')+'</div></div>';
+  if(cfg.trackFeed)h+='<div class="lbtn '+(fa?'active-f':'')+'\" data-t="feed" onclick="openLog(\'feed\')"><div class="le">'+(fa?'⏰':'🍼')+'</div><div class="ll">'+(fa?'End Feed':'Feed')+'</div></div>';
   if(cfg.trackDiaper)h+='<div class="lbtn" data-t="diaper" onclick="openLog(\'diaper\')"><div class="le">🧷</div><div class="ll">Diaper</div></div>';
   if(cfg.trackPump)h+='<div class="lbtn" data-t="pump" onclick="openLog(\'pump\')"><div class="le">🧴</div><div class="ll">Pump</div></div>';
   h+='</div>';
-  document.getElementById('main').innerHTML=h;
-}
+  document.getElementById('main').innerHTML=h;}
 
 function mkStat(em,title,last,cnt24,avg3,side,avgDur){
   var h='<div class="stat"><div class="em">'+em+'</div><div class="info"><div class="t">'+title+'</div>';
