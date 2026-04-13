@@ -214,7 +214,15 @@ class _MainAppState extends State<MainApp> {
       _NavTab(
         id: 'home', icon: Icons.home_outlined, selectedIcon: Icons.home,
         label: 'Home',
-        builder: () => HomeScreen(service: _service, settings: _settings),
+        builder: () => HomeScreen(
+          service: _service,
+          settings: _settings,
+          onTabChange: (tabId) {
+            final tabs = _buildTabs();
+            final idx = tabs.indexWhere((t) => t.id == tabId);
+            if (idx >= 0 && mounted) setState(() => _tab = idx);
+          },
+        ),
       ),
       _NavTab(
         id: 'history', icon: Icons.history_outlined, selectedIcon: Icons.history,

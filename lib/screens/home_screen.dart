@@ -15,7 +15,8 @@ const kPumpColor = Color(0xFFF472B6);
 class HomeScreen extends StatefulWidget {
   final FirestoreService service;
   final TrackerSettings settings;
-  const HomeScreen({super.key, required this.service, required this.settings});
+  final void Function(String)? onTabChange;
+  const HomeScreen({super.key, required this.service, required this.settings, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -118,20 +119,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return _fmt(DateTime.now().difference(t));
   }
 
-  String _buildStockLine() {
-    final stockByStorage = (_stats['stockByStorage'] as Map<String, int>?) ??
-        {'room': 0, 'fridge': 0, 'freezer': 0};
-    final total = stockByStorage.values.fold<int>(0, (s, v) => s + v);
-    if (total == 0) return 'Stock: empty';
-    final parts = <String>[];
-    if ((stockByStorage['room'] ?? 0) > 0)
-      parts.add('🏠 ${stockByStorage['room']}ml');
-    if ((stockByStorage['fridge'] ?? 0) > 0)
-      parts.add('❄️ ${stockByStorage['fridge']}ml');
-    if ((stockByStorage['freezer'] ?? 0) > 0)
-      parts.add('🧊 ${stockByStorage['freezer']}ml');
-    return 'Stock: ${total}ml — ${parts.join(' · ')}';
-  }
+  String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final ongoing = _stats['ongoing'] as BabyEvent?;
     final recommendedSide = _stats['recommendedSide'] as String?;
     final recommendationReason = _stats['recommendationReason'] as String?;
+    final recentFeeds = (_stats['recentFeeds'] as List<BabyEvent>?) ?? [];
+    final stockUnits = (_stats['stockUnits'] as List<Map<String, dynamic>>?) ?? [];
     final expirationWarnings =
         (_stats['expirationWarnings'] as List<Map<String, dynamic>>?) ?? [];
 
@@ -224,19 +218,18 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: 'Sleep',
                             line1: lastSleep != null
                                 ? 'Last: ${_ago(lastSleep.endTime ?? lastSleep.startTime)} ago'
-                                : 'No data'),
+                                : 'No data',
+                            onTap: () => widget.onTabChange?.call('sleep')),
                         const SizedBox(height: 8),
                       ],
 
                       if (cfg.trackFeed) ...[
                         _FeedStatCard(
                           cardBg: cardBg,
-                          recentFeeds: _events
-                              .where((e) => e.type == EventType.feed)
-                              .take(2)
-                              .toList(),
+                          recentFeeds: recentFeeds,
                           recommendedSide: recommendedSide,
                           recommendationReason: recommendationReason,
+                          onTap: () => widget.onTabChange?.call('feed'),
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -247,17 +240,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             emoji: '🧷',
                             title: 'Diaper',
                             line1: lastDiaper != null
-                                ? 'Last: ${_ago(lastDiaper.startTime)} ago (${lastDiaper.pee && lastDiaper.poop ? "pee+poop" : lastDiaper.poop ? "poop" : "pee"})'
-                                : 'No data'),
+                                ? '(${_hhmm(lastDiaper.startTime)}) ${_ago(lastDiaper.startTime)} ago · ${lastDiaper.pee && lastDiaper.poop ? "pee+poop" : lastDiaper.poop ? "poop" : "pee"}'
+                                : 'No data',
+                            onTap: () => widget.onTabChange?.call('diaper')),
                         const SizedBox(height: 8),
                       ],
 
                       if (cfg.trackPump) ...[
-                        _MiniStat(
+                        _PumpStockCard(
                             cardBg: cardBg,
-                            emoji: '🥛',
-                            title: 'Pump Stock',
-                            line1: _buildStockLine()),
+                            stockUnits: stockUnits,
+                            onTap: () => widget.onTabChange?.call('pump')),
                         const SizedBox(height: 8),
                       ],
                     ]))),
@@ -349,11 +342,13 @@ class _FeedStatCard extends StatelessWidget {
   final List<BabyEvent> recentFeeds;
   final String? recommendedSide;
   final String? recommendationReason;
+  final VoidCallback? onTap;
   const _FeedStatCard(
       {required this.cardBg,
       required this.recentFeeds,
       this.recommendedSide,
-      this.recommendationReason});
+      this.recommendationReason,
+      this.onTap});
 
   String _fmt(Duration? d) {
     if (d == null) return '--';
@@ -361,10 +356,13 @@ class _FeedStatCard extends StatelessWidget {
     return '${d.inMinutes}m';
   }
 
+  String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
   String _feedDetail(BabyEvent f) {
     final endT = f.endTime ?? f.startTime;
     final ago = _fmt(DateTime.now().difference(endT));
-    final parts = <String>[ago + ' ago'];
+    final parts = <String>['(${_hhmm(f.startTime)}) $ago ago'];
     if (f.durationMinutes != null)
       parts.add(f.durationText);
     else if (f.mlFed != null)
@@ -394,7 +392,9 @@ class _FeedStatCard extends StatelessWidget {
           border: Border.all(
               color:
                   isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: GestureDetector(
+        onTap: onTap,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('🍼', style: TextStyle(fontSize: 28)),
         const SizedBox(width: 12),
         Expanded(
@@ -409,15 +409,10 @@ class _FeedStatCard extends StatelessWidget {
                 Text('No data',
                     style: TextStyle(
                         fontSize: 13, color: Colors.grey.shade400))
-              else ...[
-                Text(_feedDetail(recentFeeds[0]),
+              else
+                ...recentFeeds.map((f) => Text(_feedDetail(f),
                     style: TextStyle(
-                        fontSize: 13, color: Colors.grey.shade400)),
-                if (recentFeeds.length > 1)
-                  Text('prev: ${_feedDetail(recentFeeds[1])}',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade500)),
-              ],
+                        fontSize: 13, color: Colors.grey.shade400))),
               if (recommendedSide != null) ...[
                 const SizedBox(height: 6),
                 Container(
@@ -438,7 +433,7 @@ class _FeedStatCard extends StatelessWidget {
                         fontSize: 11, color: Colors.grey.shade500)),
               ],
             ])),
-      ]),
+      ])),
     );
   }
 }
@@ -451,17 +446,21 @@ class _MiniStat extends StatelessWidget {
   final String line1;
   final String? line2;
   final String? line3;
+  final VoidCallback? onTap;
   const _MiniStat(
       {required this.cardBg,
       required this.emoji,
       required this.title,
       required this.line1,
       this.line2,
-      this.line3});
+      this.line3,
+      this.onTap});
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
@@ -493,6 +492,73 @@ class _MiniStat extends StatelessWidget {
                         fontSize: 12, color: Colors.grey.shade500)),
             ])),
       ]),
+    ));
+  }
+}
+
+// ===== Pump stock card — individual units with expiry =====
+class _PumpStockCard extends StatelessWidget {
+  final Color cardBg;
+  final List<Map<String, dynamic>> stockUnits;
+  final VoidCallback? onTap;
+  const _PumpStockCard({required this.cardBg, required this.stockUnits, this.onTap});
+
+  String _expiry(DateTime? d) {
+    if (d == null) return '';
+    return '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')} ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
+    final byStorage = <String, List<Map<String, dynamic>>>{
+      'room': [], 'fridge': [], 'freezer': []
+    };
+    for (final u in stockUnits) {
+      final s = u['storage'] as String? ?? 'room';
+      byStorage[s]?.add(u);
+    }
+    final hasAny = stockUnits.isNotEmpty;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: cardBg,
+            border: Border.all(
+                color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('🥛', style: TextStyle(fontSize: 28)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const Text('Pump Stock',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 4),
+                if (!hasAny)
+                  Text('Stock: empty',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade400))
+                else
+                  ...['room', 'fridge', 'freezer'].expand((s) {
+                    final units = byStorage[s]!;
+                    if (units.isEmpty) return <Widget>[];
+                    return units.map((u) {
+                      final p = u['event'] as BabyEvent;
+                      final rem = u['remaining'] as int;
+                      final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
+                      return Text(
+                          '${storageEmoji[s]} ${rem}ml$exp',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
+                    });
+                  }),
+              ])),
+        ]),
+      ),
     );
   }
 }

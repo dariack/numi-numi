@@ -496,14 +496,16 @@ class FirestoreService {
     final dayAgo = now.subtract(const Duration(hours: 24));
     final threeDaysAgo = now.subtract(const Duration(days: 3));
 
-    // ---- last of each type ----
+    // ---- last of each type + last 3 feeds ----
     BabyEvent? lastSleep, lastFeed, lastDiaper, lastPump;
+    final recentFeeds = <BabyEvent>[];
     for (final e in events) {
       if (lastSleep == null && e.type == EventType.sleep) lastSleep = e;
+      if (e.type == EventType.feed && recentFeeds.length < 3) recentFeeds.add(e);
       if (lastFeed == null && e.type == EventType.feed) lastFeed = e;
       if (lastDiaper == null && e.type == EventType.diaper) lastDiaper = e;
       if (lastPump == null && e.type == EventType.pump) lastPump = e;
-      if (lastSleep != null && lastFeed != null && lastDiaper != null && lastPump != null) break;
+      if (lastSleep != null && recentFeeds.length >= 3 && lastDiaper != null && lastPump != null) break;
     }
 
     // ---- ongoing (sleep or breast feed, < 12h old) ----
@@ -606,7 +608,8 @@ class FirestoreService {
       }
     }
 
-    final stockByStorage = <String, int>{'room': 0, 'fridge': 0, 'freezer': 0};
+    // ---- pump stock: individual units per storage, each with expiry ----
+    final stockUnits = <Map<String, dynamic>>[];
     final expirationWarnings = <Map<String, dynamic>>[];
     for (final p in events.where((e) => e.type == EventType.pump)) {
       if (p.spoiled || p.ml == null) continue;
@@ -614,8 +617,7 @@ class FirestoreService {
       if (remaining <= 0) continue;
       if (p.expiresAt != null && p.expiresAt!.isBefore(now)) continue;
       final storage = p.storage ?? 'room';
-      stockByStorage[storage] = (stockByStorage[storage] ?? 0) + remaining;
-      // expiration warnings
+      stockUnits.add({'event': p, 'remaining': remaining, 'storage': storage});
       if (p.expiresAt != null) {
         final diff = p.expiresAt!.difference(now);
         if (diff.inHours <= 24) {
@@ -631,6 +633,7 @@ class FirestoreService {
       'lastDiaper': lastDiaper,
       'lastPump': lastPump,
       'ongoing': ongoing,
+      'recentFeeds': recentFeeds,
       'pees24h': pees24h,
       'poops24h': poops24h,
       'peesAvg3d': pees3d / 3.0,
@@ -640,7 +643,7 @@ class FirestoreService {
       'recommendationReason': recommendationReason,
       'pumpCount24h': pumps24h.length,
       'pumpMl24h': pumps24h.fold<int>(0, (s, e) => s + (e.ml ?? 0)),
-      'stockByStorage': stockByStorage,
+      'stockUnits': stockUnits,
       'expirationWarnings': expirationWarnings,
     };
   }
