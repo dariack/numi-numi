@@ -486,6 +486,165 @@ class FirestoreService {
     };
   }
 
+  // ===== REAL-TIME STATS (derived locally from stream — no extra queries) =====
+
+  /// Compute everything HomeScreen needs from an already-loaded event list.
+  /// Called on every stream emission — pure Dart, instant.
+  Map<String, dynamic> computeStatsFromEvents(List<BabyEvent> events) {
+    final now = DateTime.now();
+    final cutoff12h = now.subtract(const Duration(hours: 12));
+    final dayAgo = now.subtract(const Duration(hours: 24));
+    final threeDaysAgo = now.subtract(const Duration(days: 3));
+
+    // ---- last of each type ----
+    BabyEvent? lastSleep, lastFeed, lastDiaper, lastPump;
+    for (final e in events) {
+      if (lastSleep == null && e.type == EventType.sleep) lastSleep = e;
+      if (lastFeed == null && e.type == EventType.feed) lastFeed = e;
+      if (lastDiaper == null && e.type == EventType.diaper) lastDiaper = e;
+      if (lastPump == null && e.type == EventType.pump) lastPump = e;
+      if (lastSleep != null && lastFeed != null && lastDiaper != null && lastPump != null) break;
+    }
+
+    // ---- ongoing (sleep or breast feed, < 12h old) ----
+    BabyEvent? ongoing;
+    for (final e in events) {
+      if (e.type != EventType.sleep && e.type != EventType.feed) continue;
+      if (e.source == 'pump') continue;
+      if (!e.isOngoing) continue;
+      if (e.startTime.isBefore(cutoff12h)) continue;
+      ongoing = e;
+      break;
+    }
+
+    // ---- diapers ----
+    final diapers3d = events.where((e) => e.type == EventType.diaper && e.startTime.isAfter(threeDaysAgo)).toList();
+    final diapers24h = diapers3d.where((e) => e.startTime.isAfter(dayAgo)).toList();
+    final pees24h = diapers24h.where((e) => e.pee).length;
+    final poops24h = diapers24h.where((e) => e.poop).length;
+    final pees3d = diapers3d.where((e) => e.pee).length;
+    final poops3d = diapers3d.where((e) => e.poop).length;
+
+    // ---- pump 24h ----
+    final pumps24h = events.where((e) => e.type == EventType.pump && e.startTime.isAfter(dayAgo)).toList();
+
+    // ---- side recommendation (local, same rules as before) ----
+    final breastFeeds = events
+        .where((e) => e.type == EventType.feed && e.source != 'pump' && e.side != null)
+        .take(20)
+        .toList();
+    final recentPumps = events
+        .where((e) => e.type == EventType.pump && e.side != null && e.side != 'both')
+        .take(5)
+        .toList();
+
+    String? recommendedSide, recommendationReason, lastSide;
+
+    if (breastFeeds.isEmpty && recentPumps.isNotEmpty) {
+      final pumpedSide = recentPumps.first.side!;
+      final otherSide = pumpedSide == 'left' ? 'right' : 'left';
+      recommendedSide = otherSide;
+      recommendationReason = 'Recently pumped $pumpedSide — other side is fuller';
+    } else if (breastFeeds.isNotEmpty) {
+      final lastBreast = breastFeeds.first;
+      lastSide = lastBreast.side;
+      final otherSide = lastSide == 'left' ? 'right' : 'left';
+      final lastFeedEnd = lastBreast.endTime ?? lastBreast.startTime;
+      final timeSince = now.difference(lastFeedEnd);
+      final duration = lastBreast.durationMinutes;
+
+      if (timeSince.inMinutes > 120) {
+        final pumpsSince = recentPumps
+            .where((p) => p.startTime.isAfter(lastFeedEnd) && p.side != 'both')
+            .toList();
+        if (pumpsSince.isNotEmpty) {
+          final pumpedSide = pumpsSince.first.side!;
+          final fullerSide = pumpedSide == 'left' ? 'right' : 'left';
+          recommendedSide = fullerSide;
+          recommendationReason = '$pumpedSide was pumped since last feed — $fullerSide is fuller';
+        } else {
+          recommendedSide = otherSide;
+          recommendationReason = '${timeSince.inHours}h+ gap — alternate to $otherSide';
+        }
+      } else if (duration != null && duration < 5) {
+        recommendedSide = lastSide;
+        recommendationReason = 'Last feed very short (${duration}m) — offer $lastSide again for hindmilk';
+      } else if (duration != null && duration < 10) {
+        recommendedSide = lastSide;
+        recommendationReason = 'Last feed short (${duration}m) — offer $lastSide again';
+      } else {
+        final pumpsSince = recentPumps
+            .where((p) => p.startTime.isAfter(lastFeedEnd) && p.side != 'both')
+            .toList();
+        if (pumpsSince.isNotEmpty) {
+          final pumpedSide = pumpsSince.first.side!;
+          final fullerSide = pumpedSide == 'left' ? 'right' : 'left';
+          recommendedSide = fullerSide;
+          recommendationReason = '$pumpedSide was pumped — $fullerSide is fuller';
+        } else {
+          recommendedSide = otherSide;
+          recommendationReason = 'Alternating — last was $lastSide${duration != null ? " (${duration}m)" : ""}';
+        }
+      }
+    }
+
+    // ---- pump stock (local) ----
+    final feeds = events.where((e) => e.type == EventType.feed && e.source == 'pump').toList();
+    final usedMl = <String, int>{};
+    for (final f in feeds) {
+      if (f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          for (final entry in list) {
+            final pid = entry['id'] as String;
+            final pml = (entry['ml'] as num).toInt();
+            usedMl[pid] = (usedMl[pid] ?? 0) + pml;
+          }
+        } catch (_) {}
+      } else if (f.linkedPumpId != null) {
+        usedMl[f.linkedPumpId!] = (usedMl[f.linkedPumpId!] ?? 0) + (f.mlFed ?? 0);
+      }
+    }
+
+    final stockByStorage = <String, int>{'room': 0, 'fridge': 0, 'freezer': 0};
+    final expirationWarnings = <Map<String, dynamic>>[];
+    for (final p in events.where((e) => e.type == EventType.pump)) {
+      if (p.spoiled || p.ml == null) continue;
+      final remaining = p.ml! - (usedMl[p.id] ?? 0);
+      if (remaining <= 0) continue;
+      if (p.expiresAt != null && p.expiresAt!.isBefore(now)) continue;
+      final storage = p.storage ?? 'room';
+      stockByStorage[storage] = (stockByStorage[storage] ?? 0) + remaining;
+      // expiration warnings
+      if (p.expiresAt != null) {
+        final diff = p.expiresAt!.difference(now);
+        if (diff.inHours <= 24) {
+          final urgency = diff.inHours <= 1 ? 'critical' : diff.inHours <= 4 ? 'warning' : 'info';
+          expirationWarnings.add({'event': p, 'remaining': remaining, 'urgency': urgency, 'timeLeft': diff});
+        }
+      }
+    }
+
+    return {
+      'lastSleep': lastSleep,
+      'lastFeed': lastFeed,
+      'lastDiaper': lastDiaper,
+      'lastPump': lastPump,
+      'ongoing': ongoing,
+      'pees24h': pees24h,
+      'poops24h': poops24h,
+      'peesAvg3d': pees3d / 3.0,
+      'poopsAvg3d': poops3d / 3.0,
+      'lastSide': lastSide,
+      'recommendedSide': recommendedSide,
+      'recommendationReason': recommendationReason,
+      'pumpCount24h': pumps24h.length,
+      'pumpMl24h': pumps24h.fold<int>(0, (s, e) => s + (e.ml ?? 0)),
+      'stockByStorage': stockByStorage,
+      'expirationWarnings': expirationWarnings,
+    };
+  }
+
   // ===== MIGRATION =====
 
   Future<int> migrateOldEvents() async {
