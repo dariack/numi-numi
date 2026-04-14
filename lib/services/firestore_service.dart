@@ -427,7 +427,7 @@ class FirestoreService {
       final gaps = <int>[];
       for (int i = 1; i < sorted.length; i++) {
         final gap = sorted[i].startTime.difference(sorted[i - 1].startTime).inMinutes;
-        if (gap > 0 && gap < 300) gaps.add(gap); // ignore gaps > 5h (likely different sessions)
+        if (gap > 0 && gap < 480) gaps.add(gap); // ignore gaps > 8h (cross-session outliers)
       }
       if (gaps.isEmpty) return 0;
       return gaps.fold<int>(0, (s, v) => s + v) / gaps.length;
@@ -435,11 +435,11 @@ class FirestoreService {
 
     final dayFeeds = feeds5d.where((f) {
       final h = f.startTime.hour;
-      return h >= 10 && h < 22;
+      return h >= 8 && h < 22;
     }).toList();
     final nightFeeds = feeds5d.where((f) {
       final h = f.startTime.hour;
-      return h >= 0 && h < 6;
+      return h >= 22 || h < 8; // 10pm–8am
     }).toList();
 
     final avgGapDay = _avgGapMinutes(dayFeeds);
