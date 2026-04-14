@@ -461,7 +461,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
             color: _customDuration ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : null,
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.timer_outlined, size: 16, color: _customDuration ? Theme.of(context).colorScheme.primary : Colors.grey.shade400),
+            Text('✏️', style: const TextStyle(fontSize: 14)),
             if (_customDuration && _durationMin != null) ...[
               const SizedBox(height: 2),
               Text('${_durationMin}m', style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
@@ -587,7 +587,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
             color: _customTime ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : null,
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.edit_calendar, size: 16, color: _customTime ? Theme.of(context).colorScheme.primary : Colors.grey.shade400),
+            Text('✏️', style: const TextStyle(fontSize: 14)),
             if (_customTime) ...[
               const SizedBox(height: 2),
               Text(_fmtDateTime(_when), style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
