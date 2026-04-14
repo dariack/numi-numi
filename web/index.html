@@ -230,9 +230,9 @@ function computeHomeStats(){
   var usedMl={};pumpFeeds.forEach(function(f){
     if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp2){usedMl[lp2.id]=(usedMl[lp2.id]||0)+lp2.ml})}catch(err){}}
     else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0);}});
-  var stockByType={room:0,fridge:0,freezer:0};
-  allEv.forEach(function(e){if(e.type!=='pump'||e.spoiled||!e.ml)return;var rem=e.ml-(usedMl[e.id]||0);if(rem<=0)return;if(e.expiresAt&&e.expiresAt<now)return;var st=e.storage||'room';stockByType[st]=(stockByType[st]||0)+rem;});
-  return {ls:ls,lf:lf,ld:ld,lp:lp,ong:ong,recSide:recSide,recReason:recReason,stockByType:stockByType};}
+  var stockItems=[];
+  allEv.forEach(function(e){if(e.type!=='pump'||e.spoiled||!e.ml)return;var rem=e.ml-(usedMl[e.id]||0);if(rem<=0)return;if(e.expiresAt&&e.expiresAt<now)return;var st=e.storage||'room';stockItems.push({id:e.id,pumpId:e.pumpId,ml:rem,storage:st,expires:e.expiresAt});});
+  return {ls:ls,lf:lf,ld:ld,lp:lp,ong:ong,recSide:recSide,recReason:recReason,stockItems:stockItems};}
 
 // Update only the stats area without rebuilding the whole page
 function renderHomeStats(){
@@ -250,25 +250,32 @@ function buildHomeStatsHtml(){
     if(s.ls){var endT=s.ls.endTime||s.ls.startTime;h+='<div class="l">Last: '+fmt(Date.now()-endT.getTime())+' ago</div>';}
     else h+='<div class="l">No data</div>';h+='</div></div>';}
   if(cfg.trackFeed){
-    var recentFeeds=allEv.filter(function(e){return e.type==='feed'}).slice(0,2);
+    var recentFeeds=allEv.filter(function(e){return e.type==='feed'}).slice(0,3);
     h+='<div class="stat"><div class="em">🍼</div><div class="info"><div class="t">Feed</div>';
     if(!recentFeeds.length){h+='<div class="l">No data</div>';}
-    else{recentFeeds.forEach(function(f,i){var endT2=f.endTime||f.startTime;var ago=fmt(Date.now()-endT2.getTime());var detail=ago+' ago';
+    else{recentFeeds.forEach(function(f){var endT2=f.endTime||f.startTime;var ago=fmt(Date.now()-endT2.getTime());
+      var hhmm='('+pad(f.startTime.getHours())+':'+pad(f.startTime.getMinutes())+') ';
+      var detail=hhmm+ago+' ago';
       if(f.duration)detail+=' · '+fmtMin(f.duration);else if(f.mlFed)detail+=' · '+f.mlFed+'ml';
       else if(f.source==='pump'&&f.linkedPumps){try{var tot=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0);if(tot)detail+=' · '+tot+'ml';}catch(err){}}
       if(f.side)detail+=' · '+f.side;if(!f.endTime&&!f.duration&&f.source!=='pump')detail+=' · ongoing';
-      h+='<div class="l">'+(i===0?'':'prev: ')+detail+'</div>';});}
+      h+='<div class="l">'+detail+'</div>';});}
     if(s.recSide)h+='<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:0.85rem;padding:4px 10px;border-radius:8px;margin-top:4px">🤱 Next: '+s.recSide.toUpperCase()+'</div><div class="l2">'+s.recReason+'</div>';
     h+='</div></div>';}
   if(cfg.trackDiaper){
     h+='<div class="stat"><div class="em">🧷</div><div class="info"><div class="t">Diaper</div>';
-    if(s.ld){var w=s.ld.pee&&s.ld.poop?'pee+poop':s.ld.poop?'poop':'pee';h+='<div class="l">Last: '+fmt(Date.now()-s.ld.startTime.getTime())+' ago ('+w+')</div>';}
+    if(s.ld){var w=s.ld.pee&&s.ld.poop?'pee+poop':s.ld.poop?'poop':'pee';
+      var dhhmm='('+pad(s.ld.startTime.getHours())+':'+pad(s.ld.startTime.getMinutes())+') ';
+      h+='<div class="l">'+dhhmm+fmt(Date.now()-s.ld.startTime.getTime())+' ago · '+w+'</div>';}
     else h+='<div class="l">No data</div>';h+='</div></div>';}
   if(cfg.trackPump){
-    var st=s.stockByType,total=(st.room||0)+(st.fridge||0)+(st.freezer||0);
-    var parts=[];if(st.room>0)parts.push('🏠 '+st.room+'ml');if(st.fridge>0)parts.push('❄️ '+st.fridge+'ml');if(st.freezer>0)parts.push('🧊 '+st.freezer+'ml');
+    var items=s.stockItems||[];var storageEmoji={room:'🏠',fridge:'❄️',freezer:'🧊'};
     h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump Stock</div>';
-    h+=total>0?'<div class="l">'+total+'ml — '+parts.join(' · ')+'</div>':'<div class="l">Empty</div>';
+    if(!items.length){h+='<div class="l">Empty</div>';}
+    else{items.forEach(function(u){
+      var idStr=u.pumpId?'#'+u.pumpId+' · ':'';
+      var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
+      h+='<div class="l">'+(storageEmoji[u.storage]||'🏠')+' '+idStr+u.ml+'ml'+expStr+'</div>';});}
     h+='</div></div>';}
   return h;}
 
@@ -394,8 +401,9 @@ function renderPump(){
     else{
       h+='<div class="sc-row" style="font-weight:600;color:var(--text)">Total: '+totalMl+'ml ('+items.length+' portions)</div>';
       items.forEach(function(i){
+        var idStr=i.pumpId?'#'+i.pumpId+' · ':'';
         var expStr=i.expires?'expires '+shortDate(i.expires):'';
-        h+='<div class="sc-row">'+i.pumpId+' — '+i.ml+'ml'+(expStr?' · '+expStr:'')+'</div>';
+        h+='<div class="sc-row">'+idStr+i.ml+'ml'+(expStr?' · '+expStr:'')+'</div>';
       });
     }
     h+='</div>';
@@ -417,7 +425,8 @@ function renderPump(){
       if(e.spoiled)props.push('⚠️ spoiled');
       if(e.expiresAt){var exp=e.expiresAt<now?'expired':'exp '+shortDate(e.expiresAt);props.push(exp)}
       var used=usedMl[e.id]||0;if(used>0)props.push('used: '+used+'ml');
-      h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">🧴 '+(e.pumpId||makePumpId(e))+'</div>';
+      var dispId=e.pumpId?'#'+e.pumpId:makePumpId(e);
+      h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">🧴 '+dispId+'</div>';
       if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
       h+='</td><td class="td-acts">';
       if(!e.spoiled)h+='<button onclick="markSpoiled(\''+e.id+'\')" title="Mark spoiled">🚫</button>';
@@ -548,8 +557,7 @@ function renderFeedTab(){
   }
 
   // Recent feed history
-  h+='<div class="section-label" style="margin-top:20px">Recent Feeds</div>';
-  h+=renderMiniHistory(feeds.slice(0,30));
+
   document.getElementById('main').innerHTML=h;
 }
 
@@ -594,8 +602,7 @@ function renderSleepTab(){
   h+='<div class="stat" style="background:var(--card);padding:20px;margin-bottom:16px"><div class="t" style="margin-bottom:12px">🌙 Night vs Day Sleep</div><canvas id="stc2" style="max-height:250px"></canvas></div>';
 
   // Recent history
-  h+='<div class="section-label" style="margin-top:20px">Recent Sleep</div>';
-  h+=renderMiniHistory(sleeps.slice(0,30));
+
   document.getElementById('main').innerHTML=h;
   setTimeout(function(){var cutoff=new Date(now-604800000);draw24h('stc1',sleeps7d);drawND('stc2',sleeps7d,cutoff,now)},50);
 }
@@ -636,8 +643,7 @@ function renderDiaperTab(){
   }).join(' · ')+'</div></div></div>';
 
   // Recent history
-  h+='<div class="section-label" style="margin-top:20px">Recent Diapers</div>';
-  h+=renderMiniHistory(diapers.slice(0,30));
+
   document.getElementById('main').innerHTML=h;
 }
 
@@ -866,6 +872,16 @@ function snapInputs(){
   if(mlf){var v2=parseInt(mlf.value);wiz.mlFed=isNaN(v2)?null:v2}
 }
 
+function getNextPumpId(){
+  var max=99;
+  allEv.forEach(function(e){
+    if(e.type!=='pump'||!e.pumpId)return;
+    var m=e.pumpId.match(/^(\d+)/);
+    if(m){var n=parseInt(m[1]);if(n>max)max=n;}
+  });
+  return String(max+1);
+}
+
 function wizSavePump(){
   snapInputs();
   var mlInput=document.getElementById('wiz-pump-ml');
@@ -877,7 +893,7 @@ function wizSavePump(){
     else if(wiz.storage==='fridge')exp=new Date(ms+4*24*3600000);
     else if(wiz.storage==='freezer')exp=new Date(ms+6*30*24*3600000);
   }
-  var pid=makePumpIdFromWiz();
+  var pid=getNextPumpId();
   var data={type:'pump',startTime:firebase.firestore.Timestamp.fromDate(wiz.when),pee:false,poop:false,createdBy:'web',createdAt:firebase.firestore.Timestamp.now(),pumpId:pid};
   if(wiz.ml)data.ml=wiz.ml;
   if(wiz.side)data.side=wiz.side;
@@ -930,9 +946,43 @@ function editEv(id){var ev=allEv.find(function(e){return e.id===id});if(!ev)retu
   var h='<div class="modal-bg" onclick="if(event.target===this)closeWiz()"><div class="modal"><h3>Edit '+displayName(ev)+'</h3>';
   h+='<div class="custom-row"><label>Start time</label><input type="datetime-local" id="ed-st" value="'+dtLocal(ev.startTime)+'"/></div>';
   if(ev.type!=='diaper'&&ev.type!=='pump')h+='<div class="custom-row"><label>Duration (minutes)</label><input type="number" id="ed-dur" value="'+(ev.duration||'')+'" placeholder="Empty = ongoing"/></div>';
-  if(ev.type==='feed'){h+='<div class="step-label">Side</div><div class="opts">';
+  if(ev.type==='feed'){
+    h+='<div class="step-label">Side</div><div class="opts">';
     h+='<div class="opt '+(ev.side==='left'?'sel':'')+'" id="ed-sl" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-sr\').classList.remove(\'sel\')">Left</div>';
-    h+='<div class="opt '+(ev.side==='right'?'sel':'')+'" id="ed-sr" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-sl\').classList.remove(\'sel\')">Right</div></div>'}
+    h+='<div class="opt '+(ev.side==='right'?'sel':'')+'" id="ed-sr" onclick="this.classList.toggle(\'sel\');document.getElementById(\'ed-sl\').classList.remove(\'sel\')">Right</div></div>';
+    if(ev.source==='pump'){
+      // Build available stock
+      var pumpFeeds2=allEv.filter(function(e){return e.type==='feed'&&e.source==='pump'&&e.id!==ev.id});
+      var usedMl2={};pumpFeeds2.forEach(function(f){
+        if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){usedMl2[lp.id]=(usedMl2[lp.id]||0)+lp.ml})}catch(e){}}
+        else if(f.linkedPumpId){usedMl2[f.linkedPumpId]=(usedMl2[f.linkedPumpId]||0)+(f.mlFed||0);}});
+      // Parse current linked pumps
+      var currentLinked={};
+      if(ev.linkedPumps){try{JSON.parse(ev.linkedPumps).forEach(function(lp){currentLinked[lp.id]=lp.ml})}catch(e){}}
+      var now2=new Date();
+      var stockPumps=allEv.filter(function(p){
+        if(p.type!=='pump'||p.spoiled||!p.ml)return false;
+        if(p.expiresAt&&p.expiresAt<now2&&!currentLinked[p.id])return false;
+        var rem=p.ml-(usedMl2[p.id]||0);
+        return rem>0||currentLinked[p.id];
+      });
+      h+='<div class="step-label" style="margin-top:12px">Pump portions used</div>';
+      if(!stockPumps.length){h+='<div class="step-sub">No available stock</div>';}
+      else{
+        stockPumps.forEach(function(p){
+          var rem=p.ml-(usedMl2[p.id]||0);
+          var isSel=currentLinked[p.id]!==undefined;
+          var idStr=p.pumpId?'#'+p.pumpId+' · ':'';
+          var label=idStr+Math.max(rem,0)+'ml'+(p.storage?' · '+p.storage:'');
+          h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+          h+='<input type="checkbox" id="ed-pump-cb-'+p.id+'" '+(isSel?'checked':'')+' onchange="editTogglePump(\''+p.id+'\','+Math.max(rem,0)+')"/>';
+          h+='<span style="flex:1;font-size:0.85rem">'+label+'</span>';
+          h+='<input type="number" id="ed-pump-ml-'+p.id+'" value="'+(currentLinked[p.id]||Math.max(rem,0))+'" style="width:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:6px;font-size:0.85rem;display:'+(isSel?'block':'none')+'" oninput="editPumpMlChange(\''+p.id+'\')"/>ml';
+          h+='</div>';
+        });
+      }
+    }
+  }
   if(ev.type==='diaper'){h+='<div class="step-label">Type</div><div class="opts">';
     h+='<div class="opt '+(ev.pee?'sel':'')+'" id="ed-pee" onclick="this.classList.toggle(\'sel\')">💧 Pee</div>';
     h+='<div class="opt '+(ev.poop?'sel':'')+'" id="ed-poop" onclick="this.classList.toggle(\'sel\')">💩 Poop</div></div>'}
@@ -950,6 +1000,13 @@ function editEv(id){var ev=allEv.find(function(e){return e.id===id});if(!ev)retu
   h+='<div class="btn-row"><button class="btn-cancel" onclick="closeWiz()">Cancel</button><button class="btn-save" onclick="saveEdit(\''+id+'\',\''+ev.type+'\')">Save</button></div></div></div>';
   document.getElementById('modal-root').innerHTML=h}
 
+function editTogglePump(pumpId,rem){
+  var cb=document.getElementById('ed-pump-cb-'+pumpId);
+  var ml=document.getElementById('ed-pump-ml-'+pumpId);
+  if(ml)ml.style.display=cb&&cb.checked?'block':'none';
+}
+function editPumpMlChange(pumpId){}
+
 function pickStorage(s){['ed-str','ed-stf','ed-stz'].forEach(function(id){var el=document.getElementById(id);if(el)el.classList.remove('sel')});
   var map={room:'ed-str',fridge:'ed-stf',freezer:'ed-stz'};var el=document.getElementById(map[s]);if(el)el.classList.add('sel')}
 
@@ -958,9 +1015,27 @@ function saveEdit(id,type){var st=new Date(document.getElementById('ed-st').valu
   if(type!=='diaper'&&type!=='pump'){var de=document.getElementById('ed-dur');var dur=de&&de.value?parseInt(de.value):null;
     if(dur){upd.duration=dur;upd.endTime=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+dur*60000))}
     else{upd.duration=firebase.firestore.FieldValue.delete();upd.endTime=firebase.firestore.FieldValue.delete()}}
-  if(type==='feed'){var sl=document.getElementById('ed-sl'),sr=document.getElementById('ed-sr');
+  if(type==='feed'){
+    var sl=document.getElementById('ed-sl'),sr=document.getElementById('ed-sr');
     if(sl&&sl.classList.contains('sel'))upd.side='left';else if(sr&&sr.classList.contains('sel'))upd.side='right';
-    else upd.side=firebase.firestore.FieldValue.delete()}
+    else upd.side=firebase.firestore.FieldValue.delete();
+    // Collect selected pump portions
+    var linkedArr=[];
+    allEv.filter(function(p){return p.type==='pump';}).forEach(function(p){
+      var cb=document.getElementById('ed-pump-cb-'+p.id);
+      if(cb&&cb.checked){
+        var mlEl=document.getElementById('ed-pump-ml-'+p.id);
+        var ml=mlEl&&mlEl.value?parseInt(mlEl.value):0;
+        if(ml>0)linkedArr.push({id:p.id,ml:ml});
+      }
+    });
+    if(linkedArr.length>0){
+      upd.linkedPumps=JSON.stringify(linkedArr);
+      upd.mlFed=linkedArr.reduce(function(s,x){return s+x.ml},0);
+      upd.source='pump';
+      upd.linkedPumpId=firebase.firestore.FieldValue.delete();
+    }
+  }
   if(type==='diaper'){upd.pee=document.getElementById('ed-pee').classList.contains('sel');upd.poop=document.getElementById('ed-poop').classList.contains('sel')}
   if(type==='pump'){
     var mlEl=document.getElementById('ed-ml');upd.ml=mlEl&&mlEl.value?parseInt(mlEl.value):null;
@@ -971,7 +1046,9 @@ function saveEdit(id,type){var st=new Date(document.getElementById('ed-st').valu
     if(str&&str.classList.contains('sel')){upd.storage='room';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+4*3600000))}
     else if(stf&&stf.classList.contains('sel')){upd.storage='fridge';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+4*24*3600000))}
     else if(stz&&stz.classList.contains('sel')){upd.storage='freezer';upd.expiresAt=firebase.firestore.Timestamp.fromDate(new Date(st.getTime()+6*30*24*3600000))}
-    upd.pumpId=makePumpIdFromData(st,upd.ml,upd.storage);
+    // preserve existing numeric pumpId; only regenerate if it was a legacy date-based id
+    var existingEv=allEv.find(function(e){return e.id===id});
+    if(!existingEv||!existingEv.pumpId||!/^\d+/.test(existingEv.pumpId)){upd.pumpId=makePumpIdFromData(st,upd.ml,upd.storage);}
   }
   db.collection('families').doc(fid).collection('events').doc(id).update(upd).then(function(){closeWiz()})}
 
