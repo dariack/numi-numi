@@ -648,6 +648,30 @@ class FirestoreService {
     };
   }
 
+  // ===== PUMP ID =====
+
+  /// Returns next 3-digit pump ID starting at 100, incrementing by 1.
+  /// Scans all existing pump pumpId fields to find the highest numeric one.
+  Future<String> getNextPumpId() async {
+    final snap = await _getWithCache(
+        _ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true));
+    int max = 99;
+    for (final doc in snap.docs) {
+      try {
+        final data = doc.data() as Map<String, dynamic>;
+        final pid = data['pumpId'] as String?;
+        if (pid == null) continue;
+        // Extract leading numeric part e.g. "103" or "103 · 80ml · fridge"
+        final match = RegExp(r'^(\d+)').firstMatch(pid);
+        if (match != null) {
+          final n = int.tryParse(match.group(1)!);
+          if (n != null && n > max) max = n;
+        }
+      } catch (_) {}
+    }
+    return '${max + 1}';
+  }
+
   // ===== MIGRATION =====
 
   Future<int> migrateOldEvents() async {

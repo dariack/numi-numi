@@ -86,11 +86,10 @@ class _LogEventSheetState extends State<LogEventSheet> {
         await widget.service.completeOngoing(widget.ongoing!.id, durationMinutes: dur, side: _side);
       } else if (_isPump) {
         final exp = BabyEvent.calcExpiration(_when, _pumpStorage);
-        final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        final pid = '${months[_when.month - 1]} ${_when.day} ${_when.hour.toString().padLeft(2, '0')}:${_when.minute.toString().padLeft(2, '0')}${_pumpMl != null ? ' · ${_pumpMl}ml' : ''}${_pumpStorage != null ? ' · $_pumpStorage' : ''}';
+        final nextId = await widget.service.getNextPumpId();
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.pump, startTime: _when, side: _side,
-          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: pid, createdBy: 'app',
+          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: nextId, createdBy: 'app',
         ));
       } else if (_isFeed) {
         // If pump source with ad-hoc ml, create a pump event first

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/event.dart';
@@ -291,6 +292,10 @@ class _EditEventSheetState extends State<_EditEventSheet> {
   late bool _spoiled;
   bool _saving = false;
 
+  // Pump association for feed edits
+  List<Map<String, dynamic>> _availableStock = [];
+  Map<String, int> _selectedPumps = {}; // pumpEventId -> ml
+
   @override
   void initState() {
     super.initState();
@@ -304,6 +309,25 @@ class _EditEventSheetState extends State<_EditEventSheet> {
     _ml = widget.event.ml;
     _storage = widget.event.storage;
     _spoiled = widget.event.spoiled;
+
+    // Pre-populate selected pumps from existing linkedPumps
+    if (widget.event.type == EventType.feed && widget.event.source == 'pump') {
+      _loadStock();
+      if (widget.event.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(
+              jsonDecode(widget.event.linkedPumps!));
+          for (final e in list) {
+            _selectedPumps[e['id'] as String] = (e['ml'] as num).toInt();
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _loadStock() async {
+    final stock = await widget.service.getAvailableStock();
+    if (mounted) setState(() => _availableStock = stock);
   }
 
   Future<void> _save() async {
@@ -331,7 +355,14 @@ class _EditEventSheetState extends State<_EditEventSheet> {
         pee: _pee, poop: _poop, createdBy: widget.event.createdBy, createdAt: widget.event.createdAt,
         ml: _ml, storage: _storage, expiresAt: expiresAt,
         spoiled: _spoiled, pumpId: pumpId,
-        source: _source, linkedPumpId: widget.event.linkedPumpId, linkedPumps: widget.event.linkedPumps, mlFed: _mlFed,
+        source: _source,
+        linkedPumpId: _source == 'pump' && _selectedPumps.isEmpty ? widget.event.linkedPumpId : null,
+        linkedPumps: _source == 'pump' && _selectedPumps.isNotEmpty
+            ? jsonEncode(_selectedPumps.entries.map((e) => {'id': e.key, 'ml': e.value}).toList())
+            : (_source == 'pump' ? widget.event.linkedPumps : null),
+        mlFed: _source == 'pump'
+            ? (_selectedPumps.isNotEmpty ? _selectedPumps.values.fold(0, (s, v) => s + v) : _mlFed)
+            : null,
       );
       await widget.service.updateEvent(updated);
       if (mounted) Navigator.pop(context, true);
@@ -414,17 +445,59 @@ class _EditEventSheetState extends State<_EditEventSheet> {
           const SizedBox(height: 10),
         ],
 
-        // Feed: ml fed (for pump feeds)
+        // Feed: pump association
         if (isFeed && _source == 'pump') ...[
-          Text('ML fed', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+          Text('Pump portions used', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
           const SizedBox(height: 6),
-          TextField(
-            keyboardType: TextInputType.number,
-            controller: TextEditingController(text: _mlFed?.toString() ?? ''),
-            decoration: InputDecoration(hintText: 'optional', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), isDense: true),
-            onChanged: (v) => _mlFed = int.tryParse(v),
-          ),
-          const SizedBox(height: 10),
+          if (_availableStock.isEmpty)
+            Text('No available stock', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          else
+            ..._availableStock.map((s) {
+              final p = s['event'] as BabyEvent;
+              final rem = s['remaining'] as int;
+              final isSelected = _selectedPumps.containsKey(p.id);
+              final label = '${p.pumpId != null ? "#${p.pumpId} · " : ""}${rem}ml${p.storage != null ? " · ${p.storage}" : ""}';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (v) => setState(() {
+                      if (v == true) _selectedPumps[p.id] = rem;
+                      else _selectedPumps.remove(p.id);
+                    }),
+                  ),
+                  Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+                  if (isSelected)
+                    SizedBox(
+                      width: 70,
+                      child: TextField(
+                        keyboardType: TextInputType.number,
+                        controller: TextEditingController(text: _selectedPumps[p.id].toString()),
+                        decoration: InputDecoration(
+                          suffix: const Text('ml'),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        ),
+                        onChanged: (v) {
+                          final val = int.tryParse(v);
+                          if (val != null && val > 0) _selectedPumps[p.id] = val;
+                        },
+                      ),
+                    ),
+                ]),
+              );
+            }),
+          if (_selectedPumps.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                'Total: ${_selectedPumps.values.fold(0, (s, v) => s + v)}ml',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade400),
+              ),
+            ),
+          const SizedBox(height: 4),
         ],
 
         // Diaper

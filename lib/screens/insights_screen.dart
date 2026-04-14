@@ -138,11 +138,7 @@ class _FeedTabState extends State<_FeedTab> {
             ]),
           ),
 
-          const SizedBox(height: 16),
-          Text('Recent Feeds', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: Colors.grey.shade500, letterSpacing: 0.5)),
-          const SizedBox(height: 8),
-          _EventHistory(service: widget.service, type: EventType.feed),
+
         ]),
     );
   }
@@ -177,12 +173,7 @@ class _SleepTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.all(16), children: [
-        Text('Recent Sleep', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-            color: Colors.grey.shade500, letterSpacing: 0.5)),
-        const SizedBox(height: 8),
-        _EventHistory(service: service, type: EventType.sleep),
-      ]);
+    return const Center(child: Text('See History tab for full sleep log', style: TextStyle(color: Colors.grey)));
   }
 }
 
@@ -308,11 +299,7 @@ class _DiaperTabState extends State<_DiaperTab> {
             ]),
           ),
 
-          const SizedBox(height: 16),
-          Text('Recent Diapers', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: Colors.grey.shade500, letterSpacing: 0.5)),
-          const SizedBox(height: 8),
-          _EventHistory(service: widget.service, type: EventType.diaper),
+
         ]),
     );
   }

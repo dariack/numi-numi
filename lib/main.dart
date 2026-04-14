@@ -290,7 +290,14 @@ class _MainAppState extends State<MainApp> {
     // Clamp tab index if tabs changed (e.g. user toggled an action off)
     final safeTab = _tab.clamp(0, tabs.length - 1);
 
-    return Scaffold(
+    return PopScope(
+      canPop: safeTab == 0, // only allow system back when on home tab
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && safeTab != 0) {
+          setState(() => _tab = 0); // go back to home
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Baby Tracker')),
       body: tabs[safeTab].builder(),
       bottomNavigationBar: NavigationBar(
@@ -307,7 +314,7 @@ class _MainAppState extends State<MainApp> {
                 ))
             .toList(),
       ),
-    );
+    ));
   }
 
   @override
