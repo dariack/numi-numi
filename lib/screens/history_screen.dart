@@ -361,7 +361,7 @@ class _EditEventSheetState extends State<_EditEventSheet> {
             ? jsonEncode(_selectedPumps.entries.map((e) => {'id': e.key, 'ml': e.value}).toList())
             : (_source == 'pump' ? widget.event.linkedPumps : null),
         mlFed: _source == 'pump'
-            ? (_selectedPumps.isNotEmpty ? _selectedPumps.values.fold(0, (s, v) => s + v) : _mlFed)
+            ? (_selectedPumps.isNotEmpty ? _selectedPumps.values.fold<int>(0, (s, v) => s + v) : _mlFed)
             : null,
       );
       await widget.service.updateEvent(updated);
