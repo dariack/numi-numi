@@ -231,7 +231,7 @@ function computeHomeStats(){
     if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp2){usedMl[lp2.id]=(usedMl[lp2.id]||0)+lp2.ml})}catch(err){}}
     else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0);}});
   var stockItems=[];
-  allEv.forEach(function(e){if(e.type!=='pump'||e.spoiled||!e.ml)return;var rem=e.ml-(usedMl[e.id]||0);if(rem<=0)return;if(e.expiresAt&&e.expiresAt<now)return;var st=e.storage||'room';stockItems.push({id:e.id,pumpId:e.pumpId,ml:rem,storage:st,expires:e.expiresAt});});
+  allEv.forEach(function(e){if(e.type!=='pump'||e.spoiled||!e.ml)return;var rem=e.ml-(usedMl[e.id]||0);if(rem<=0)return;if(e.expiresAt&&e.expiresAt<now)return;var st=e.storage||'room';stockItems.push({id:e.id,pumpId:e.pumpId,ml:rem,storage:st,expires:e.expiresAt,startTime:e.startTime});});
   return {ls:ls,lf:lf,ld:ld,lp:lp,ong:ong,recSide:recSide,recReason:recReason,stockItems:stockItems};}
 
 // Update only the stats area without rebuilding the whole page
@@ -272,10 +272,15 @@ function buildHomeStatsHtml(){
     var items=s.stockItems||[];var storageEmoji={room:'🏠',fridge:'❄️',freezer:'🧊'};
     h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump Stock</div>';
     if(!items.length){h+='<div class="l">Empty</div>';}
-    else{items.forEach(function(u){
-      var idStr=u.pumpId?(/^\d+$/.test(u.pumpId)?'#'+u.pumpId+' · ':u.pumpId+' · '):'';
-      var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
-      h+='<div class="l">'+(storageEmoji[u.storage]||'🏠')+' '+idStr+u.ml+'ml'+expStr+'</div>';});}
+    else{
+      var sorted=items.slice().sort(function(a,b){return (b.startTime||0)-(a.startTime||0);});
+      sorted.forEach(function(u){
+        var idStr=u.pumpId?'#'+u.pumpId:'—';
+        var pumpedStr=u.startTime?shortDate(u.startTime):'?';
+        var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
+        h+='<div class="l">'+idStr+' · pumped: '+pumpedStr+' · '+u.ml+'ml'+expStr+'</div>';
+      });
+    }
     h+='</div></div>';}
   return h;}
 
@@ -389,7 +394,7 @@ function renderPump(){
     var expired=p.expiresAt&&p.expiresAt<now;
     if(expired)return;
     var st=p.storage||'room';
-    if(stock[st])stock[st].push({id:p.id,ml:remaining,expires:p.expiresAt,pumpId:p.pumpId||makePumpId(p),startTime:p.startTime});
+    if(stock[st])stock[st].push({id:p.id,ml:remaining,expires:p.expiresAt,pumpId:p.pumpId,startTime:p.startTime});
   });
 
   h+='<div class="stats-section"><div class="section-label">Stock Overview</div>';
@@ -399,41 +404,17 @@ function renderPump(){
     h+='<div class="stock-card"><div class="sc-title">'+s.l+' (lasts '+s.c+')</div>';
     if(!items.length){h+='<div class="sc-row">No milk available</div>'}
     else{
-      h+='<div class="sc-row" style="font-weight:600;color:var(--text)">Total: '+totalMl+'ml ('+items.length+' portions)</div>';
       items.forEach(function(i){
-        var idStr=i.pumpId?(/^\d+$/.test(i.pumpId)?'#'+i.pumpId+' · ':i.pumpId+' · '):'';
-        var expStr=i.expires?'expires '+shortDate(i.expires):'';
-        h+='<div class="sc-row">'+idStr+i.ml+'ml'+(expStr?' · '+expStr:'')+'</div>';
+        var idStr=i.pumpId?'#'+i.pumpId:'—';
+        var pumpedStr=i.startTime?shortDate(i.startTime):'?';
+        var expStr=i.expires?' · expires: '+shortDate(i.expires):'';
+        h+='<div class="sc-row">'+idStr+' · pumped: '+pumpedStr+' · '+i.ml+'ml'+expStr+'</div>';
       });
     }
     h+='</div>';
   });
   h+='</div>';
 
-  // Pump history
-  h+='<div class="section-label">Pump History</div>';
-  if(!pumps.length){h+='<div style="text-align:center;padding:40px;color:var(--muted)">No pump events</div>'}
-  else{
-    h+='<table class="ev-table">';
-    pumps.forEach(function(e){
-      var time=pad(e.startTime.getHours())+':'+pad(e.startTime.getMinutes());
-      var date=pad(e.startTime.getDate())+'/'+pad(e.startTime.getMonth()+1);
-      var props=[];
-      if(e.ml)props.push(e.ml+'ml');
-      if(e.side)props.push(e.side);
-      if(e.storage)props.push(e.storage);
-      if(e.spoiled)props.push('⚠️ spoiled');
-      if(e.expiresAt){var exp=e.expiresAt<now?'expired':'exp '+shortDate(e.expiresAt);props.push(exp)}
-      var used=usedMl[e.id]||0;if(used>0)props.push('used: '+used+'ml');
-      var dispId=e.pumpId?(/^\d+$/.test(e.pumpId)?'#'+e.pumpId:e.pumpId):makePumpId(e);
-      h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">🧴 '+dispId+'</div>';
-      if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
-      h+='</td><td class="td-acts">';
-      if(!e.spoiled)h+='<button onclick="markSpoiled(\''+e.id+'\')" title="Mark spoiled">🚫</button>';
-      h+='<button onclick="editEv(\''+e.id+'\')">✏️</button> <button class="del" onclick="delEv(\''+e.id+'\',\'Pump\')">🗑</button></td></tr>';
-    });
-    h+='</table>';
-  }
   document.getElementById('main').innerHTML=h;
 }
 

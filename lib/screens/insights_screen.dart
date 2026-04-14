@@ -345,11 +345,7 @@ class _PumpTabState extends State<_PumpTab> {
           _stockSection(cardBg, '❄️ Fridge', 'Lasts 4 days', _stock['fridge'] ?? []),
           const SizedBox(height: 8),
           _stockSection(cardBg, '🧊 Freezer', 'Lasts 6 months', _stock['freezer'] ?? []),
-          const SizedBox(height: 16),
-          Text('Pump History', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: Colors.grey.shade500, letterSpacing: 0.5)),
-          const SizedBox(height: 8),
-          _EventHistory(service: widget.service, type: EventType.pump),
+
         ]),
     );
   }
@@ -372,22 +368,21 @@ class _PumpTabState extends State<_PumpTab> {
         const SizedBox(height: 6),
         if (items.isEmpty)
           Text('No milk available', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
-        else ...[
-          Text('Total: ${totalMl}ml (${items.length} portions)',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        else
           ...items.map((i) {
             final p = i['event'] as BabyEvent;
             final rem = i['remaining'] as int;
+            final idStr = p.pumpId != null ? '#${p.pumpId}' : '—';
+            final pumped = '${p.startTime.day.toString().padLeft(2,'0')}/${p.startTime.month.toString().padLeft(2,'0')} ${p.startTime.hour.toString().padLeft(2,'0')}:${p.startTime.minute.toString().padLeft(2,'0')}';
+            final exp = p.expiresAt != null
+                ? ' · expires: ${p.expiresAt!.day.toString().padLeft(2,'0')}/${p.expiresAt!.month.toString().padLeft(2,'0')} ${p.expiresAt!.hour.toString().padLeft(2,'0')}:${p.expiresAt!.minute.toString().padLeft(2,'0')}'
+                : '';
             return Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(children: [
-                Expanded(child: Text(p.readablePumpId,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400))),
-                Text('${rem}ml', style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-              ]),
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('$idStr · pumped: $pumped · ${rem}ml$exp',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
             );
           }),
-        ],
       ]),
     );
   }

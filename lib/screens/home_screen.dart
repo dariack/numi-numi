@@ -508,18 +508,15 @@ class _PumpStockCard extends StatelessWidget {
     return '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')} ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
   }
 
+  String _pumped(DateTime d) =>
+      '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')} ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
-    final byStorage = <String, List<Map<String, dynamic>>>{
-      'room': [], 'fridge': [], 'freezer': []
-    };
-    for (final u in stockUnits) {
-      final s = u['storage'] as String? ?? 'room';
-      byStorage[s]?.add(u);
-    }
-    final hasAny = stockUnits.isNotEmpty;
+    // Sort by pumped time descending
+    final sorted = [...stockUnits]..sort((a, b) =>
+        (b['event'] as BabyEvent).startTime.compareTo((a['event'] as BabyEvent).startTime));
 
     return GestureDetector(
       onTap: onTap,
@@ -540,24 +537,18 @@ class _PumpStockCard extends StatelessWidget {
                 const Text('Pump Stock',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 4),
-                if (!hasAny)
+                if (sorted.isEmpty)
                   Text('Stock: empty',
                       style: TextStyle(fontSize: 13, color: Colors.grey.shade400))
                 else
-                  ...['room', 'fridge', 'freezer'].expand((s) {
-                    final units = byStorage[s]!;
-                    if (units.isEmpty) return <Widget>[];
-                    return units.map((u) {
-                      final p = u['event'] as BabyEvent;
-                      final rem = u['remaining'] as int;
-                      final id = p.pumpId != null
-                          ? (RegExp(r'^\d+\$').hasMatch(p.pumpId!) ? '#\${p.pumpId} · ' : '\${p.pumpId} · ')
-                          : '';
-                      final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
-                      return Text(
-                          '${storageEmoji[s]} $id${rem}ml$exp',
-                          style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
-                    });
+                  ...sorted.map((u) {
+                    final p = u['event'] as BabyEvent;
+                    final rem = u['remaining'] as int;
+                    final idStr = p.pumpId != null ? '#${p.pumpId}' : '—';
+                    final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
+                    return Text(
+                        '$idStr · pumped: ${_pumped(p.startTime)} · ${rem}ml$exp',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }),
               ])),
         ]),
