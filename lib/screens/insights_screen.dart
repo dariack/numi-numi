@@ -71,15 +71,18 @@ class _FeedTabState extends State<_FeedTab> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1E2130) : Colors.white;
 
-    final todayDurOnly = ins['todayDurOnly'] as int;
-    final todayMlOnly = ins['todayMlOnly'] as int;
-    final todayEquiv = ins['todayEquiv'] as double;
-    final avg3dEquiv = ins['avg3dEquiv'] as double;
+    final dur24h = ins['dur24h'] as int;
+    final ml24h = ins['ml24h'] as int;
+    final equiv24h = ins['equiv24h'] as double;
+    final avg5dEquiv = ins['avg5dEquiv'] as double;
+    final avgDuration = ins['avgDuration'] as double;
+    final avgGapDay = ins['avgGapDay'] as double;
+    final avgGapNight = ins['avgGapNight'] as double;
 
-    final todayParts = <String>[];
-    if (todayDurOnly > 0) todayParts.add('${_fmtMin(todayDurOnly)} breast');
-    if (todayMlOnly > 0) todayParts.add('${todayMlOnly}ml pumped');
-    final todayStr = todayParts.isNotEmpty ? todayParts.join(' + ') : 'No feeds yet';
+    final parts24h = <String>[];
+    if (dur24h > 0) parts24h.add('${_fmtMin(dur24h)} breast');
+    if (ml24h > 0) parts24h.add('${ml24h}ml pumped');
+    final str24h = parts24h.isNotEmpty ? parts24h.join(' + ') : 'No feeds yet';
 
     return RefreshIndicator(
         onRefresh: _load,
@@ -115,7 +118,7 @@ class _FeedTabState extends State<_FeedTab> {
             const SizedBox(height: 10),
           ],
 
-          // Today so far — combined
+          // Last 24h
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: cardBg,
@@ -124,20 +127,35 @@ class _FeedTabState extends State<_FeedTab> {
               const Text('📊', style: TextStyle(fontSize: 24)),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Today so far', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Text('Last 24h', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 4),
-                Text(todayStr, style: TextStyle(fontSize: 13, color: kFeedColor, fontWeight: FontWeight.w600)),
-                if (avg3dEquiv > 0) ...[
+                Text(str24h, style: TextStyle(fontSize: 13, color: kFeedColor, fontWeight: FontWeight.w600)),
+                if (avg5dEquiv > 0) ...[
                   const SizedBox(height: 4),
-                  Text('3-day avg: ~${_fmtMin(avg3dEquiv.round())} equiv/day',
+                  Text('5-day avg: ~${_fmtMin(avg5dEquiv.round())}/day',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   const SizedBox(height: 4),
-                  _buildCompLabel(todayEquiv, avg3dEquiv, 'feeding'),
+                  _buildCompLabel(equiv24h, avg5dEquiv, 'feeding'),
                 ],
               ])),
             ]),
           ),
+          const SizedBox(height: 10),
 
+          // Avg stats row
+          Row(children: [
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '⏱', title: 'Avg Duration',
+              value: avgDuration > 0 ? _fmtMin(avgDuration) : '--', color: kFeedColor,
+              subtitle: '5-day avg · breast')),
+            const SizedBox(width: 10),
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '☀️', title: 'Avg Gap Day',
+              value: avgGapDay > 0 ? _fmtMin(avgGapDay) : '--', color: kFeedColor,
+              subtitle: '10am–10pm · 5d avg')),
+          ]),
+          const SizedBox(height: 10),
+          _InsightCard(cardBg: cardBg, emoji: '🌙', title: 'Avg Gap Night',
+            value: avgGapNight > 0 ? _fmtMin(avgGapNight) : '--', color: kFeedColor,
+            subtitle: 'midnight–6am · 5-day avg'),
 
         ]),
     );
@@ -200,12 +218,12 @@ class _DiaperTabState extends State<_DiaperTab> {
   Future<void> _load() async {
     final snap = await widget.service.eventsByTypeStream(EventType.diaper, limit: 200).first;
     final now = DateTime.now();
-    final today6 = DateTime(now.year, now.month, now.day, 6);
-    final threeDaysAgo = now.subtract(const Duration(days: 3));
+    final last24h = now.subtract(const Duration(hours: 24));
+    final fiveDaysAgo = now.subtract(const Duration(days: 5));
 
-    final todayCount = snap.where((e) => e.startTime.isAfter(today6)).length;
-    final d3d = snap.where((e) => e.startTime.isAfter(threeDaysAgo)).toList();
-    final avg3d = d3d.isEmpty ? 0.0 : d3d.length / 3.0;
+    final count24h = snap.where((e) => e.startTime.isAfter(last24h)).length;
+    final d5d = snap.where((e) => e.startTime.isAfter(fiveDaysAgo)).toList();
+    final avg5d = d5d.isEmpty ? 0.0 : d5d.length / 5.0;
 
     String periodName(DateTime dt) {
       final h = dt.hour;
@@ -217,13 +235,13 @@ class _DiaperTabState extends State<_DiaperTab> {
 
     final periodAvgs = <String, double>{};
     for (final p in ['Night', 'Morning', 'Afternoon', 'Evening']) {
-      final count = d3d.where((e) => periodName(e.startTime) == p).length;
-      periodAvgs[p] = count / 3.0;
+      final count = d5d.where((e) => periodName(e.startTime) == p).length;
+      periodAvgs[p] = count / 5.0;
     }
 
     if (mounted) setState(() {
-      _todayCount = todayCount;
-      _avg3d = avg3d;
+      _todayCount = count24h;
+      _avg3d = avg5d;
       _periodAvgs = periodAvgs;
       _loading = false;
     });
@@ -264,12 +282,12 @@ class _DiaperTabState extends State<_DiaperTab> {
               const Text('📊', style: TextStyle(fontSize: 24)),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Today so far', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Text('Last 24h', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 4),
                 Text('$_todayCount diapers', style: TextStyle(fontSize: 13, color: kDiaperColor, fontWeight: FontWeight.w600)),
                 if (_avg3d > 0) ...[
                   const SizedBox(height: 4),
-                  Text('3-day avg: ${_avg3d.toStringAsFixed(1)}/day', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                  Text('5-day avg: ${_avg3d.toStringAsFixed(1)}/day', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   const SizedBox(height: 4),
                   compChip,
                 ],
@@ -284,7 +302,7 @@ class _DiaperTabState extends State<_DiaperTab> {
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: cardBg,
               border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('3-Day Avg by Period', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const Text('5-Day Avg by Period', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 8),
               ..._periodAvgs.entries.map((e) => Padding(
                 padding: const EdgeInsets.only(bottom: 4),

@@ -500,33 +500,52 @@ function renderFeedTab(){
     h+='<div style="background:var(--feeddim);border:2px solid var(--feed);border-radius:12px;padding:16px;margin:10px 0"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><span style="font-size:1.5rem">🤱</span><span style="font-weight:700;font-size:1.2rem;color:var(--feed)">Next side: '+recSide2.toUpperCase()+'</span></div><div style="font-size:0.85rem;color:var(--muted)">'+recReason2+'</div></div>';
   }
 
-  // Today stats — combined ml + duration using 60ml≈30min conversion
-  var today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
-  var feedsToday=feeds.filter(function(f){return f.startTime>=today6});
+  // Last 24h stats
   function feedMinEquiv(f){
     if(f.duration)return f.duration;
     var ml=f.mlFed||0;
     if(!ml&&f.linkedPumps){try{ml=JSON.parse(f.linkedPumps).reduce(function(s,x){return s+x.ml},0)}catch(e){}}
-    if(ml>0)return ml/2; // 60ml ≈ 30min
+    if(ml>0)return ml/2;
     return 0;
   }
-  var todayEquiv=feedsToday.reduce(function(s,f){return s+feedMinEquiv(f)},0);
-  var d3=new Date(now-2592e5);
-  var feeds3d=feeds.filter(function(f){return f.startTime>=d3});
-  var avg3dEquiv=feeds3d.length?feeds3d.reduce(function(s,f){return s+feedMinEquiv(f)},0)/3:0;
-  var durOnly=feedsToday.reduce(function(s,f){return s+(f.duration||0)},0);
-  var mlOnly=feedsToday.reduce(function(s,f){
+  var last24h=new Date(now-864e5);
+  var feeds24h=feeds.filter(function(f){return f.startTime>=last24h});
+  var d5=new Date(now-432e4*10); // 5 days
+  var feeds5d=feeds.filter(function(f){return f.startTime>=d5});
+  var equiv24h=feeds24h.reduce(function(s,f){return s+feedMinEquiv(f)},0);
+  var avg5dEquiv=feeds5d.length?feeds5d.reduce(function(s,f){return s+feedMinEquiv(f)},0)/5:0;
+  var dur24h=feeds24h.reduce(function(s,f){return s+(f.duration||0)},0);
+  var ml24h=feeds24h.reduce(function(s,f){
     var ml=f.mlFed||0;if(!ml&&f.linkedPumps){try{ml=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0)}catch(e){}}return s+ml;
   },0);
-  var todayParts=[];
-  if(durOnly>0)todayParts.push(fmtMin(durOnly)+' breast');
-  if(mlOnly>0)todayParts.push(mlOnly+'ml pumped');
-  var todayStr=todayParts.length?todayParts.join(' + '):'No feeds yet';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Today so far</div>';
-  h+='<div class="l" style="color:var(--feed);font-weight:600">'+todayStr+'</div>';
-  if(avg3dEquiv>0){h+='<div class="l2">3-day avg: ~'+fmtMin(Math.round(avg3dEquiv))+' equiv/day</div>';
-    h+=compLabel(todayEquiv,avg3dEquiv,'feeding');}
+  var parts24h=[];
+  if(dur24h>0)parts24h.push(fmtMin(dur24h)+' breast');
+  if(ml24h>0)parts24h.push(ml24h+'ml pumped');
+  var str24h=parts24h.length?parts24h.join(' + '):'No feeds yet';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Last 24h</div>';
+  h+='<div class="l" style="color:var(--feed);font-weight:600">'+str24h+'</div>';
+  if(avg5dEquiv>0){h+='<div class="l2">5-day avg: ~'+fmtMin(Math.round(avg5dEquiv))+'/day</div>';
+    h+=compLabel(equiv24h,avg5dEquiv,'feeding');}
   h+='</div></div>';
+
+  // Avg duration, day gap, night gap (5-day)
+  var breastFeeds5d=feeds5d.filter(function(f){return f.source!=='pump'&&f.duration&&f.duration>0});
+  var avgDur=breastFeeds5d.length?breastFeeds5d.reduce(function(s,f){return s+f.duration},0)/breastFeeds5d.length:0;
+  function avgGap(subset){
+    if(subset.length<2)return 0;
+    var sorted=subset.slice().sort(function(a,b){return a.startTime-b.startTime});
+    var gaps=[];
+    for(var i=1;i<sorted.length;i++){var g=Math.round((sorted[i].startTime-sorted[i-1].startTime)/60000);if(g>0&&g<300)gaps.push(g);}
+    return gaps.length?gaps.reduce(function(s,v){return s+v},0)/gaps.length:0;
+  }
+  var dayFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=10&&h2<22;});
+  var nightFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=0&&h2<6;});
+  var gapDay=avgGap(dayFeeds5d),gapNight=avgGap(nightFeeds5d);
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d avg · breast</div></div></div>';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">☀️</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapDay>0?fmtMin(Math.round(gapDay)):'--')+'</div><div class="l">Avg gap day</div><div class="l2">10am–10pm · 5d</div></div></div>';
+  h+='</div>';
+  h+='<div class="stat" style="background:var(--card);margin-top:10px"><div class="em">🌙</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapNight>0?fmtMin(Math.round(gapNight)):'--')+'</div><div class="l">Avg gap night</div><div class="l2">midnight–6am · 5-day avg</div></div></div>';
 
   // Left/right balance (7-day)
   var d7=new Date(now-604800000);
@@ -601,24 +620,24 @@ function renderDiaperTab(){
     h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--diaper)">'+fmt(now-lastD.startTime)+'</div><div class="l">Since last diaper ('+w+')</div></div></div>';
   }
 
-  // Today count vs 3-day avg
-  var today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
-  var dToday=diapers.filter(function(e){return e.startTime>=today6}).length;
-  var d3=new Date(now-2592e5);
-  var d3d=diapers.filter(function(e){return e.startTime>=d3}).length;
-  var avg3d=d3d/3;
-  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Today so far</div>';
-  h+='<div class="l" style="color:var(--diaper);font-weight:600">'+dToday+' diapers</div>';
-  if(avg3d>0){h+='<div class="l2">3-day avg: '+avg3d.toFixed(1)+'/day</div>';h+=compLabel(dToday,avg3d,'diapers');}
+  // Last 24h vs 5-day avg
+  var last24h=new Date(now-864e5);
+  var d24count=diapers.filter(function(e){return e.startTime>=last24h}).length;
+  var d5=new Date(now-432e4*10);
+  var d5d=diapers.filter(function(e){return e.startTime>=d5}).length;
+  var avg5d=d5d/5;
+  h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Last 24h</div>';
+  h+='<div class="l" style="color:var(--diaper);font-weight:600">'+d24count+' diapers</div>';
+  if(avg5d>0){h+='<div class="l2">5-day avg: '+avg5d.toFixed(1)+'/day</div>';h+=compLabel(d24count,avg5d,'diapers');}
   h+='</div></div>';
 
-  // 3-day avg per period
+  // 5-day avg per period
   var periods=['Night','Morning','Afternoon','Evening'];
   var periodAvgs=periods.map(function(p){
-    var count=diapers.filter(function(e){return e.startTime>=d3&&getPeriodName(e.startTime)===p}).length;
-    return {name:p,avg:(count/3).toFixed(1)};
+    var count=diapers.filter(function(e){return e.startTime>=d5&&getPeriodName(e.startTime)===p}).length;
+    return {name:p,avg:(count/5).toFixed(1)};
   });
-  h+='<div class="stat" style="background:var(--card)"><div class="em">🕐</div><div class="info"><div class="t">3-Day Avg by Period</div>';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🕐</div><div class="info"><div class="t">5-Day Avg by Period</div>';
   h+='<div class="l">'+periodAvgs.map(function(p){
     var em={Night:'🌙',Morning:'🌅',Afternoon:'☀️',Evening:'🌇'}[p.name];
     return em+' '+p.name+': '+p.avg;

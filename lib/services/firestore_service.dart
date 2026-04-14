@@ -349,7 +349,7 @@ class FirestoreService {
   // ===== FEED INSIGHTS =====
 
   Future<Map<String, dynamic>> getFeedInsights() async {
-    final feeds = await getRecentFeeds(20);
+    final feeds = await getRecentFeeds(100);
     final now = DateTime.now();
 
     Duration? timeSinceLast;
@@ -359,8 +359,6 @@ class FirestoreService {
     }
 
     final sideRec = await getSideRecommendation();
-
-    final today6 = DateTime(now.year, now.month, now.day, 6);
 
     // Combined ml+duration: 60ml ≈ 30min
     double feedMinEquiv(BabyEvent f) {
@@ -372,15 +370,17 @@ class FirestoreService {
           ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
         } catch (_) {}
       }
-      if (ml > 0) return ml / 2.0; // 60ml ≈ 30min
+      if (ml > 0) return ml / 2.0;
       return 0;
     }
 
-    final feedsToday = feeds.where((f) => f.startTime.isAfter(today6)).toList();
-    final todayEquiv = feedsToday.fold<double>(0, (s, f) => s + feedMinEquiv(f));
-    final todayDurOnly = feedsToday.fold<int>(0, (s, f) => s + (f.durationMinutes ?? 0));
-    int todayMlOnly = 0;
-    for (final f in feedsToday) {
+    // Last 24h
+    final last24h = now.subtract(const Duration(hours: 24));
+    final feeds24h = feeds.where((f) => f.startTime.isAfter(last24h)).toList();
+    final equiv24h = feeds24h.fold<double>(0, (s, f) => s + feedMinEquiv(f));
+    final dur24h = feeds24h.fold<int>(0, (s, f) => s + (f.durationMinutes ?? 0));
+    int ml24h = 0;
+    for (final f in feeds24h) {
       int ml = f.mlFed ?? 0;
       if (ml == 0 && f.linkedPumps != null) {
         try {
@@ -388,20 +388,58 @@ class FirestoreService {
           ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
         } catch (_) {}
       }
-      todayMlOnly += ml;
+      ml24h += ml;
     }
 
-    final threeDaysAgo = now.subtract(const Duration(days: 3));
-    final feeds3d = feeds.where((f) => f.startTime.isAfter(threeDaysAgo)).toList();
-    final avg3dEquiv = feeds3d.isEmpty ? 0.0 : feeds3d.fold<double>(0, (s, f) => s + feedMinEquiv(f)) / 3.0;
+    // 5-day avg
+    final fiveDaysAgo = now.subtract(const Duration(days: 5));
+    final feeds5d = feeds.where((f) => f.startTime.isAfter(fiveDaysAgo)).toList();
+    final avg5dEquiv = feeds5d.isEmpty ? 0.0 : feeds5d.fold<double>(0, (s, f) => s + feedMinEquiv(f)) / 5.0;
+
+    // Avg feed duration (breast only, last 5 days)
+    final breastFeeds5d = feeds5d.where((f) => f.source != 'pump' && f.durationMinutes != null && f.durationMinutes! > 0).toList();
+    final avgDuration = breastFeeds5d.isEmpty ? 0.0 : breastFeeds5d.fold<int>(0, (s, f) => s + f.durationMinutes!) / breastFeeds5d.length;
+
+    // Avg gap between feeds during day (10:00–22:00) and night (00:00–06:00), last 5 days
+    double _avgGapMinutes(List<BabyEvent> window) {
+      if (window.length < 2) return 0;
+      final sorted = [...window]..sort((a, b) => a.startTime.compareTo(b.startTime));
+      final gaps = <int>[];
+      for (int i = 1; i < sorted.length; i++) {
+        final gap = sorted[i].startTime.difference(sorted[i - 1].startTime).inMinutes;
+        if (gap > 0 && gap < 300) gaps.add(gap); // ignore gaps > 5h (likely different sessions)
+      }
+      if (gaps.isEmpty) return 0;
+      return gaps.fold<int>(0, (s, v) => s + v) / gaps.length;
+    }
+
+    final dayFeeds = feeds5d.where((f) {
+      final h = f.startTime.hour;
+      return h >= 10 && h < 22;
+    }).toList();
+    final nightFeeds = feeds5d.where((f) {
+      final h = f.startTime.hour;
+      return h >= 0 && h < 6;
+    }).toList();
+
+    final avgGapDay = _avgGapMinutes(dayFeeds);
+    final avgGapNight = _avgGapMinutes(nightFeeds);
 
     return {
       'timeSinceLast': timeSinceLast,
       ...sideRec,
-      'todayEquiv': todayEquiv,
-      'todayDurOnly': todayDurOnly,
-      'todayMlOnly': todayMlOnly,
-      'avg3dEquiv': avg3dEquiv,
+      'equiv24h': equiv24h,
+      'dur24h': dur24h,
+      'ml24h': ml24h,
+      'avg5dEquiv': avg5dEquiv,
+      'avgDuration': avgDuration,
+      'avgGapDay': avgGapDay,
+      'avgGapNight': avgGapNight,
+      // keep legacy keys for compatibility
+      'todayEquiv': equiv24h,
+      'todayDurOnly': dur24h,
+      'todayMlOnly': ml24h,
+      'avg3dEquiv': avg5dEquiv,
     };
   }
 
