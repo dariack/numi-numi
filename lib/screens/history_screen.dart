@@ -326,7 +326,17 @@ class _EditEventSheetState extends State<_EditEventSheet> {
   }
 
   Future<void> _loadStock() async {
-    final stock = await widget.service.getAvailableStock();
+    // Get linked pump IDs so already-used pumps still show up for editing
+    final linkedIds = <String>[];
+    if (widget.event.linkedPumps != null) {
+      try {
+        final list = List<Map<String, dynamic>>.from(jsonDecode(widget.event.linkedPumps!));
+        linkedIds.addAll(list.map((e) => e['id'] as String));
+      } catch (_) {}
+    } else if (widget.event.linkedPumpId != null) {
+      linkedIds.add(widget.event.linkedPumpId!);
+    }
+    final stock = await widget.service.getStockForFeedEdit(widget.event.id, linkedIds);
     if (mounted) setState(() => _availableStock = stock);
   }
 

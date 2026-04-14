@@ -159,7 +159,8 @@ class FirestoreService {
 
   // ===== PUMP STOCK =====
 
-  Future<List<Map<String, dynamic>>> getAvailableStock() async {
+  /// [excludeEventId] — feed event to exclude from 'used' calc so its linked pumps show up
+  Future<List<Map<String, dynamic>>> getAvailableStock({String? excludeEventId}) async {
     final now = DateTime.now();
     final results = await Future.wait([
       _getWithCache(_ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true)),
@@ -175,6 +176,7 @@ class FirestoreService {
 
     final usedMl = <String, int>{};
     for (final f in feeds) {
+      if (f.id == excludeEventId) continue; // exclude this feed from used calc
       // New multi-pump format
       if (f.linkedPumps != null) {
         try {
@@ -201,6 +203,24 @@ class FirestoreService {
       stock.add({'event': p, 'remaining': remaining, 'used': usedMl[p.id] ?? 0});
     }
     return stock;
+  }
+
+  /// Stock for editing a specific feed — includes pumps already linked to that feed
+  Future<List<Map<String, dynamic>>> getStockForFeedEdit(String feedEventId, List<String> linkedPumpIds) async {
+    final available = await getAvailableStock(excludeEventId: feedEventId);
+    final availableIds = available.map((s) => (s['event'] as BabyEvent).id).toSet();
+    // Fetch any linked pumps not in available stock (fully used by other feeds)
+    for (final pid in linkedPumpIds) {
+      if (availableIds.contains(pid)) continue;
+      try {
+        final doc = await _getDocWithCache(_ref.doc(pid));
+        if (!doc.exists) continue;
+        final p = BabyEvent.fromFirestore(doc);
+        if (p.spoiled || p.ml == null) continue;
+        available.add({'event': p, 'remaining': p.ml!, 'used': 0});
+      } catch (_) {}
+    }
+    return available;
   }
 
   Future<Map<String, List<Map<String, dynamic>>>> getStockByStorage() async {
