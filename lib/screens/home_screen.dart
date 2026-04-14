@@ -545,9 +545,11 @@ class _PumpStockCard extends StatelessWidget {
                     final p = u['event'] as BabyEvent;
                     final rem = u['remaining'] as int;
                     final idStr = p.pumpId ?? '—';
-                    final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
+                    final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
+                    final emoji = storageEmoji[u['storage'] as String? ?? 'room'] ?? '🏠';
+                    final exp = p.expiresAt != null ? ' · expires: \${_expiry(p.expiresAt)}' : '';
                     return Text(
-                        '$idStr · ${rem}ml$exp',
+                        '\$emoji \$idStr · \${rem}ml\$exp',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }),
               ])),
