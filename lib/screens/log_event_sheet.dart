@@ -218,7 +218,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 8),
       _whenChips(),
       const SizedBox(height: 6),
-      _customTimePicker(),
       if (_isNow && _feedSource != 'pump') ...[
         const SizedBox(height: 6),
         Text('Will be logged as ongoing', style: TextStyle(fontSize: 12, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
@@ -242,8 +241,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
           _label('Duration'),
           const SizedBox(height: 8),
           _durationChips(isSleep: false),
-          const SizedBox(height: 6),
-          _customDurationPicker(),
         ],
       ],
 
@@ -346,7 +343,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 8),
       _whenChips(),
       const SizedBox(height: 6),
-      _customTimePicker(),
 
       const SizedBox(height: 16),
       _label('Milliliters (optional)'),
@@ -392,7 +388,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 8),
       _whenChips(),
       const SizedBox(height: 6),
-      _customTimePicker(),
       if (_isNow && _isSleep) ...[
         const SizedBox(height: 6),
         Text('Will be logged as ongoing', style: TextStyle(fontSize: 12, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
@@ -410,7 +405,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 12),
       _durationChips(isSleep: _isSleep),
       const SizedBox(height: 6),
-      if (!_isOngoing) _customDurationPicker(),
       const SizedBox(height: 16),
       _SaveButton(label: 'Save', saving: _saving, onTap: () {
         if (!_isOngoing && _durationMin == null) {
@@ -423,20 +417,58 @@ class _LogEventSheetState extends State<LogEventSheet> {
   }
 
   Widget _durationChips({required bool isSleep}) {
-    final quickOptions = isSleep ? [30, 60, 120, 180] : [10, 15, 20, 30];
-    final quickLabels = isSleep ? ['30m', '1h', '2h', '3h'] : ['10m', '15m', '20m', '30m'];
     final isEnding = widget.ongoing != null;
     final endNowMin = isEnding ? DateTime.now().difference(_when).inMinutes : 0;
-    return Wrap(spacing: 8, runSpacing: 8, children: [
-      if (isEnding)
-        _QuickBtn(label: '⏹ End now (${endNowMin}m)', selected: _durationMin == endNowMin && !_isOngoing,
+    final quickOptions = isSleep ? [30, 60, 120, 180] : [10, 15, 20, 30];
+    final quickLabels = isSleep ? ['30m', '1h', '2h', '3h'] : ['10m', '15m', '20m', '30m'];
+    return Row(children: [
+      if (isEnding) ...[
+        _CompactBtn(label: '⏹ ${endNowMin}m', selected: _durationMin == endNowMin && !_isOngoing,
           color: Colors.red, onTap: () => setState(() { _durationMin = endNowMin; _isOngoing = false; _customDuration = false; })),
-      for (int i = 0; i < quickOptions.length; i++)
-        _QuickBtn(label: quickLabels[i], selected: _durationMin == quickOptions[i] && !_isOngoing,
+        const SizedBox(width: 6),
+      ],
+      for (int i = 0; i < quickOptions.length; i++) ...[
+        _CompactBtn(label: quickLabels[i], selected: _durationMin == quickOptions[i] && !_isOngoing,
           onTap: () => setState(() { _durationMin = quickOptions[i]; _isOngoing = false; _customDuration = false; })),
-      if (!isEnding)
-        _QuickBtn(label: '⏱ Still ongoing', selected: _isOngoing, color: Colors.orange,
+        if (i < quickOptions.length - 1) const SizedBox(width: 6),
+      ],
+      if (!isEnding) ...[
+        const SizedBox(width: 6),
+        _CompactBtn(label: '⏱', selected: _isOngoing, color: Colors.orange,
           onTap: () => setState(() { _isOngoing = true; _durationMin = null; _customDuration = false; })),
+      ],
+      const SizedBox(width: 6),
+      // Custom duration button
+      Expanded(child: GestureDetector(
+        onTap: () async {
+          final c = TextEditingController(text: _durationMin?.toString() ?? '');
+          final result = await showDialog<int>(context: context, builder: (ctx) => AlertDialog(
+            title: const Text('Duration (minutes)'),
+            content: TextField(controller: c, keyboardType: TextInputType.number, autofocus: true,
+              decoration: const InputDecoration(hintText: 'e.g. 45')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, int.tryParse(c.text)), child: const Text('OK')),
+            ],
+          ));
+          if (result != null && result > 0) setState(() { _durationMin = result; _isOngoing = false; _customDuration = true; });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _customDuration ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.3)),
+            color: _customDuration ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : null,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.timer_outlined, size: 16, color: _customDuration ? Theme.of(context).colorScheme.primary : Colors.grey.shade400),
+            if (_customDuration && _durationMin != null) ...[
+              const SizedBox(height: 2),
+              Text('${_durationMin}m', style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
+            ],
+          ]),
+        ),
+      )),
     ]);
   }
 
@@ -447,7 +479,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 8),
       _whenChips(),
       const SizedBox(height: 6),
-      _customTimePicker(),
 
       const SizedBox(height: 16),
       // What
@@ -523,66 +554,48 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
   Widget _whenChips() {
     final now = DateTime.now();
-    return Wrap(spacing: 8, runSpacing: 8, children: [
-      _QuickBtn(label: 'Now', selected: _selectedQuickIdx == 0 && !_customTime,
+    // Single-row compact time selector
+    return Row(children: [
+      _CompactBtn(label: 'Now', selected: _selectedQuickIdx == 0 && !_customTime,
         onTap: () => setState(() { _when = DateTime.now(); _customTime = false; _selectedQuickIdx = 0; })),
-      _QuickBtn(label: '15m ago', selected: _selectedQuickIdx == 1 && !_customTime,
+      const SizedBox(width: 6),
+      _CompactBtn(label: '5m', selected: _selectedQuickIdx == 4 && !_customTime,
+        onTap: () => setState(() { _when = now.subtract(const Duration(minutes: 5)); _customTime = false; _selectedQuickIdx = 4; })),
+      const SizedBox(width: 6),
+      _CompactBtn(label: '15m', selected: _selectedQuickIdx == 1 && !_customTime,
         onTap: () => setState(() { _when = now.subtract(const Duration(minutes: 15)); _customTime = false; _selectedQuickIdx = 1; })),
-      _QuickBtn(label: '30m ago', selected: _selectedQuickIdx == 2 && !_customTime,
+      const SizedBox(width: 6),
+      _CompactBtn(label: '30m', selected: _selectedQuickIdx == 2 && !_customTime,
         onTap: () => setState(() { _when = now.subtract(const Duration(minutes: 30)); _customTime = false; _selectedQuickIdx = 2; })),
-      _QuickBtn(label: '1h ago', selected: _selectedQuickIdx == 3 && !_customTime,
-        onTap: () => setState(() { _when = now.subtract(const Duration(hours: 1)); _customTime = false; _selectedQuickIdx = 3; })),
+      const SizedBox(width: 6),
+      Expanded(child: GestureDetector(
+        onTap: () async {
+          final d = await showDatePicker(context: context, initialDate: _when,
+            firstDate: now.subtract(const Duration(days: 30)), lastDate: now);
+          if (d == null || !mounted) return;
+          final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_when));
+          if (t == null) return;
+          final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+          if (dt.isAfter(now)) return;
+          setState(() { _when = dt; _customTime = true; _selectedQuickIdx = -1; });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _customTime ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.3)),
+            color: _customTime ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : null,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.edit_calendar, size: 16, color: _customTime ? Theme.of(context).colorScheme.primary : Colors.grey.shade400),
+            if (_customTime) ...[
+              const SizedBox(height: 2),
+              Text(_fmtDateTime(_when), style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
+            ],
+          ]),
+        ),
+      )),
     ]);
-  }
-
-  Widget _customTimePicker() {
-    return GestureDetector(
-      onTap: () async {
-        final now = DateTime.now();
-        final date = await showDatePicker(context: context, initialDate: _when, firstDate: now.subtract(const Duration(days: 30)), lastDate: now);
-        if (date == null || !mounted) return;
-        final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_when));
-        if (time == null) return;
-        final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-        if (dt.isAfter(now)) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot be in the future'))); return; }
-        setState(() { _when = dt; _customTime = true; _selectedQuickIdx = -1; });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _customTime ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.3))),
-        child: Row(children: [
-          Icon(Icons.edit_calendar, size: 18, color: Colors.grey.shade400), const SizedBox(width: 8),
-          Text(_customTime ? _fmtDateTime(_when) : 'Pick custom time', style: TextStyle(color: _customTime ? null : Colors.grey.shade500)),
-        ]),
-      ),
-    );
-  }
-
-  Widget _customDurationPicker() {
-    return GestureDetector(
-      onTap: () async {
-        final c = TextEditingController(text: _durationMin?.toString() ?? '');
-        final result = await showDialog<int>(context: context, builder: (ctx) => AlertDialog(
-          title: const Text('Duration (minutes)'),
-          content: TextField(controller: c, keyboardType: TextInputType.number, autofocus: true, decoration: const InputDecoration(hintText: 'e.g. 45')),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(ctx, int.tryParse(c.text)), child: const Text('OK')),
-          ],
-        ));
-        if (result != null && result > 0) setState(() { _durationMin = result; _customDuration = true; });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _customDuration ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.3))),
-        child: Row(children: [
-          Icon(Icons.timer, size: 18, color: Colors.grey.shade400), const SizedBox(width: 8),
-          Text(_customDuration ? '$_durationMin minutes' : 'Custom duration', style: TextStyle(color: _customDuration ? null : Colors.grey.shade500)),
-        ]),
-      ),
-    );
   }
 
   String _fmtTime(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -592,6 +605,31 @@ class _LogEventSheetState extends State<LogEventSheet> {
 // ================================================================
 // REUSABLE WIDGETS
 // ================================================================
+
+class _CompactBtn extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? color;
+  const _CompactBtn({required this.label, required this.selected, required this.onTap, this.color});
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? Theme.of(context).colorScheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: selected ? c : Colors.grey.withOpacity(0.3), width: selected ? 2 : 1),
+          color: selected ? c.withOpacity(0.12) : null,
+        ),
+        child: Text(label, style: TextStyle(fontSize: 13, fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          color: selected ? c : Colors.grey.shade400)),
+      ),
+    );
+  }
+}
 
 class _QuickBtn extends StatelessWidget {
   final String label; final bool selected; final VoidCallback onTap; final Color? color;

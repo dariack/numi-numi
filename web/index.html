@@ -541,11 +541,11 @@ function renderFeedTab(){
   var dayFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=10&&h2<22;});
   var nightFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=0&&h2<6;});
   var gapDay=avgGap(dayFeeds5d),gapNight=avgGap(nightFeeds5d);
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d avg · breast</div></div></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d · breast</div></div></div>';
   h+='<div class="stat" style="background:var(--card)"><div class="em">☀️</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapDay>0?fmtMin(Math.round(gapDay)):'--')+'</div><div class="l">Avg gap day</div><div class="l2">10am–10pm · 5d</div></div></div>';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapNight>0?fmtMin(Math.round(gapNight)):'--')+'</div><div class="l">Avg gap night</div><div class="l2">midnight–6am · 5d</div></div></div>';
   h+='</div>';
-  h+='<div class="stat" style="background:var(--card);margin-top:10px"><div class="em">🌙</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapNight>0?fmtMin(Math.round(gapNight)):'--')+'</div><div class="l">Avg gap night</div><div class="l2">midnight–6am · 5-day avg</div></div></div>';
 
   // Left/right balance (7-day)
   var d7=new Date(now-604800000);

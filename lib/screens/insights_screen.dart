@@ -142,20 +142,20 @@ class _FeedTabState extends State<_FeedTab> {
           ),
           const SizedBox(height: 10),
 
-          // Avg stats row
+          // Avg stats — all 3 in one row
           Row(children: [
-            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '⏱', title: 'Avg Duration',
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '⏱', title: 'Avg Dur',
               value: avgDuration > 0 ? _fmtMin(avgDuration) : '--', color: kFeedColor,
-              subtitle: '5-day avg · breast')),
-            const SizedBox(width: 10),
-            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '☀️', title: 'Avg Gap Day',
+              subtitle: '5d · breast')),
+            const SizedBox(width: 8),
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '☀️', title: 'Gap Day',
               value: avgGapDay > 0 ? _fmtMin(avgGapDay) : '--', color: kFeedColor,
-              subtitle: '10am–10pm · 5d avg')),
+              subtitle: '10am–10pm')),
+            const SizedBox(width: 8),
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '🌙', title: 'Gap Night',
+              value: avgGapNight > 0 ? _fmtMin(avgGapNight) : '--', color: kFeedColor,
+              subtitle: 'midnight–6am')),
           ]),
-          const SizedBox(height: 10),
-          _InsightCard(cardBg: cardBg, emoji: '🌙', title: 'Avg Gap Night',
-            value: avgGapNight > 0 ? _fmtMin(avgGapNight) : '--', color: kFeedColor,
-            subtitle: 'midnight–6am · 5-day avg'),
 
         ]),
     );
