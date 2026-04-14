@@ -273,7 +273,7 @@ function buildHomeStatsHtml(){
     h+='<div class="stat"><div class="em">🧴</div><div class="info"><div class="t">Pump Stock</div>';
     if(!items.length){h+='<div class="l">Empty</div>';}
     else{items.forEach(function(u){
-      var idStr=u.pumpId?'#'+u.pumpId+' · ':'';
+      var idStr=u.pumpId?(/^\d+$/.test(u.pumpId)?'#'+u.pumpId+' · ':u.pumpId+' · '):'';
       var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
       h+='<div class="l">'+(storageEmoji[u.storage]||'🏠')+' '+idStr+u.ml+'ml'+expStr+'</div>';});}
     h+='</div></div>';}
@@ -401,7 +401,7 @@ function renderPump(){
     else{
       h+='<div class="sc-row" style="font-weight:600;color:var(--text)">Total: '+totalMl+'ml ('+items.length+' portions)</div>';
       items.forEach(function(i){
-        var idStr=i.pumpId?'#'+i.pumpId+' · ':'';
+        var idStr=i.pumpId?(/^\d+$/.test(i.pumpId)?'#'+i.pumpId+' · ':i.pumpId+' · '):'';
         var expStr=i.expires?'expires '+shortDate(i.expires):'';
         h+='<div class="sc-row">'+idStr+i.ml+'ml'+(expStr?' · '+expStr:'')+'</div>';
       });
@@ -425,7 +425,7 @@ function renderPump(){
       if(e.spoiled)props.push('⚠️ spoiled');
       if(e.expiresAt){var exp=e.expiresAt<now?'expired':'exp '+shortDate(e.expiresAt);props.push(exp)}
       var used=usedMl[e.id]||0;if(used>0)props.push('used: '+used+'ml');
-      var dispId=e.pumpId?'#'+e.pumpId:makePumpId(e);
+      var dispId=e.pumpId?(/^\d+$/.test(e.pumpId)?'#'+e.pumpId:e.pumpId):makePumpId(e);
       h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">🧴 '+dispId+'</div>';
       if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
       h+='</td><td class="td-acts">';
