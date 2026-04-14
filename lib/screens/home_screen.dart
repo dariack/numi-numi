@@ -547,9 +547,9 @@ class _PumpStockCard extends StatelessWidget {
                     final idStr = p.pumpId ?? '—';
                     final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
                     final emoji = storageEmoji[u['storage'] as String? ?? 'room'] ?? '🏠';
-                    final exp = p.expiresAt != null ? ' · expires: \${_expiry(p.expiresAt)}' : '';
+                    final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
                     return Text(
-                        '\$emoji #\$idStr · \${rem}ml\$exp',
+                        '$emoji #$idStr · ${rem}ml$exp',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }),
               ])),
