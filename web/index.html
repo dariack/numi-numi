@@ -275,10 +275,9 @@ function buildHomeStatsHtml(){
     else{
       var sorted=items.slice().sort(function(a,b){return (b.startTime||0)-(a.startTime||0);});
       sorted.forEach(function(u){
-        var idStr=u.pumpId?'#'+u.pumpId:'—';
-        var pumpedStr=u.startTime?shortDate(u.startTime):'?';
+        var idStr=u.pumpId||'—';
         var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
-        h+='<div class="l">'+idStr+' · pumped: '+pumpedStr+' · '+u.ml+'ml'+expStr+'</div>';
+        h+='<div class="l">'+idStr+' · '+u.ml+'ml'+expStr+'</div>';
       });
     }
     h+='</div></div>';}

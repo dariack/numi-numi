@@ -544,10 +544,10 @@ class _PumpStockCard extends StatelessWidget {
                   ...sorted.map((u) {
                     final p = u['event'] as BabyEvent;
                     final rem = u['remaining'] as int;
-                    final idStr = p.pumpId != null ? '#${p.pumpId}' : '—';
+                    final idStr = p.pumpId ?? '—';
                     final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
                     return Text(
-                        '$idStr · pumped: ${_pumped(p.startTime)} · ${rem}ml$exp',
+                        '$idStr · ${rem}ml$exp',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }),
               ])),
