@@ -155,7 +155,7 @@ class _FeedTabState extends State<_FeedTab> {
             const SizedBox(width: 10),
             Expanded(child: _InsightCard(cardBg: cardBg, emoji: '🌙', title: 'Avg Gap Night',
               value: avgGapNight > 0 ? _fmtMin(avgGapNight) : '--', color: kFeedColor,
-              subtitle: 'midnight–6am · 5d avg')),
+              subtitle: '10pm–10am · 5d avg')),
           ]),
 
         ]),
@@ -228,7 +228,7 @@ class _DiaperTabState extends State<_DiaperTab> {
 
     String periodName(DateTime dt) {
       final h = dt.hour;
-      if (h >= 0 && h < 6) return 'Night';
+      if (h >= 22 || h < 10) return 'Night';
       if (h >= 6 && h < 12) return 'Morning';
       if (h >= 12 && h < 18) return 'Afternoon';
       return 'Evening';

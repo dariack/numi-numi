@@ -369,7 +369,7 @@ class FirestoreService {
   // ===== FEED INSIGHTS =====
 
   Future<Map<String, dynamic>> getFeedInsights() async {
-    final feeds = await getRecentFeeds(100);
+    final feeds = await getRecentFeeds(200);
     final now = DateTime.now();
 
     Duration? timeSinceLast;
@@ -439,7 +439,7 @@ class FirestoreService {
 
     final allSorted5d = [...feeds5d]..sort((a, b) => a.startTime.compareTo(b.startTime));
     final avgGapDay = _avgGapInWindow(allSorted5d, (h) => h >= 10 && h < 22);
-    final avgGapNight = _avgGapInWindow(allSorted5d, (h) => h >= 0 && h < 6);
+    final avgGapNight = _avgGapInWindow(allSorted5d, (h) => h >= 22 || h < 10);
 
     return {
       'timeSinceLast': timeSinceLast,

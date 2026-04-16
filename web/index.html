@@ -510,7 +510,7 @@ function renderFeedTab(){
   }
   var last24h=new Date(now-864e5);
   var feeds24h=feeds.filter(function(f){return f.startTime>=last24h});
-  var d5=new Date(now-432e4*10); // 5 days
+  var d5=new Date(now-864e5*5); // 5 days
   var feeds5d=feeds.filter(function(f){return f.startTime>=d5});
   var equiv24h=feeds24h.reduce(function(s,f){return s+feedMinEquiv(f)},0);
   var avg5dEquiv=feeds5d.length?feeds5d.reduce(function(s,f){return s+feedMinEquiv(f)},0)/5:0;
@@ -546,11 +546,11 @@ function renderFeedTab(){
   }
   var allSorted5d=feeds5d.slice().sort(function(a,b){return a.startTime-b.startTime});
   var gapDay=avgGapInWindow(allSorted5d,function(h){return h>=10&&h<22;});
-  var gapNight=avgGapInWindow(allSorted5d,function(h){return h>=0&&h<6;});
+  var gapNight=avgGapInWindow(allSorted5d,function(h){return h>=22||h<10;});
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">';
   h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d · breast</div></div></div>';
   h+='<div class="stat" style="background:var(--card)"><div class="em">☀️</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapDay>0?fmtMin(Math.round(gapDay)):'--')+'</div><div class="l">Avg gap day</div><div class="l2">10am–10pm · 5d</div></div></div>';
-  h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapNight>0?fmtMin(Math.round(gapNight)):'--')+'</div><div class="l">Avg gap night</div><div class="l2">midnight–6am · 5d</div></div></div>';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapNight>0?fmtMin(Math.round(gapNight)):'--')+'</div><div class="l">Avg gap night</div><div class="l2">10pm–10am · 5d</div></div></div>';
   h+='</div>';
 
   // Left/right balance (7-day)
@@ -629,7 +629,7 @@ function renderDiaperTab(){
   // Last 24h vs 5-day avg
   var last24h=new Date(now-864e5);
   var d24count=diapers.filter(function(e){return e.startTime>=last24h}).length;
-  var d5=new Date(now-432e4*10);
+  var d5=new Date(now-864e5*5);
   var d5d=diapers.filter(function(e){return e.startTime>=d5}).length;
   var avg5d=d5d/5;
   h+='<div class="stat" style="background:var(--card)"><div class="em">📊</div><div class="info"><div class="t">Last 24h</div>';
