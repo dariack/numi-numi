@@ -333,95 +333,90 @@ function mkDiaperStat(last,p24,po24,p3,po3){
 // ==================== HISTORY ====================
 function applyTimeFilter(arr,getTime){
   var now=new Date(),today6=new Date(now.getFullYear(),now.getMonth(),now.getDate(),6,0,0);
-  if(timeF==="today")return arr.filter(function(e){return getTime(e)>=today6});
-  if(timeF==="yesterday"){var y6=new Date(today6-864e5);return arr.filter(function(e){return getTime(e)>=y6&&getTime(e)<today6});}
-  if(timeF==="2daysago"){var d2=new Date(today6-2*864e5),d1=new Date(today6-864e5);return arr.filter(function(e){return getTime(e)>=d2&&getTime(e)<d1});}
-  if(timeF==="3daysago"){var d3=new Date(today6-3*864e5),d2b=new Date(today6-2*864e5);return arr.filter(function(e){return getTime(e)>=d3&&getTime(e)<d2b});}
+  if(timeF==="today")return arr.filter(function(e){return getTime(e)>=today6;});
+  if(timeF==="yesterday"){var y6=new Date(today6-864e5);return arr.filter(function(e){return getTime(e)>=y6&&getTime(e)<today6;});}
+  if(timeF==="2daysago"){var d2=new Date(today6-2*864e5),d1=new Date(today6-864e5);return arr.filter(function(e){return getTime(e)>=d2&&getTime(e)<d1;});}
+  if(timeF==="3daysago"){var d3=new Date(today6-3*864e5),d2b=new Date(today6-2*864e5);return arr.filter(function(e){return getTime(e)>=d3&&getTime(e)<d2b;});}
   return arr;
 }
-
 function medRow(g){
-  var time=pad(g.givenAt.getHours())+":"+pad(g.givenAt.getMinutes());
-  var label="💊 "+g.medicineName+(g.dose?" · "+g.dose:"");
-  var sub=g.scheduledTime?"sched: "+g.scheduledTime:"given";
-  return "<tr><td class="td-time">"+time+"</td><td><div class="td-event">"+label+"</div><div class="td-props">"+sub+"</div></td>"
-    +"<td class="td-acts"><button class="del" onclick="delMedGiven('"+g.id+"')" title="Delete">🗑</button></td></tr>";
+  var time=pad(g.givenAt.getHours())+':'+pad(g.givenAt.getMinutes());
+  var label='💊 '+g.medicineName+(g.dose?' · '+g.dose:'');
+  var sub=g.scheduledTime?'sched: '+g.scheduledTime:'given';
+  return '<tr><td class="td-time">'+time+'</td><td><div class="td-event">'+label+'</div><div class="td-props">'+sub+'</div></td>'
+    +'<td class="td-acts"><button class="del" onclick="delMedGiven(\''+g.id+'\')" title="Delete">🗑</button></td></tr>';
 }
-
 function delMedGiven(id){
-  if(confirm("Delete this medicine record?"))
-    db.collection("families").doc(fid).collection("medicineGiven").doc(id).delete();
+  if(confirm('Delete this medicine record?'))
+    db.collection('families').doc(fid).collection('medicineGiven').doc(id).delete();
 }
-
 function renderHistory(){
-  var h="<div class="page-title">History</div>";
-  h+="<div class="filters">";
-  var types=[{k:"all",l:"All"}];
-  if(cfg.trackSleep)types.push({k:"sleep",l:"😴 Sleep"});
-  if(cfg.trackFeed)types.push({k:"feed",l:"🍼 Feed"});
-  if(cfg.trackDiaper)types.push({k:"diaper",l:"🧷 Diaper"});
-  if(cfg.trackPump)types.push({k:"pump",l:"🧴 Pump"});
-  types.push({k:"medicine",l:"💊 Medicine"});
-  types.forEach(function(f){h+="<span class="chip "+(typeF===f.k?"sel":"")+"" onclick="typeF='" +f.k+"';render()">" +f.l+"</span>";});
-  h+="</div>";
-  if(typeF!=="medicine"){
-    h+="<div class="filters" style="margin-bottom:16px">";
-    ["all","today","yesterday","2daysago","3daysago"].forEach(function(f){
-      var lbl={all:"All time",today:"Today",yesterday:"Yesterday","2daysago":"2 days ago","3daysago":"3 days ago"}[f];
-      h+="<span class="chip "+(timeF===f?"sel":"")+"" onclick="timeF='"+f+"';render()">" +lbl+"</span>";});
-    h+="</div>";
-  } else { h+="<div style="margin-bottom:16px"></div>"; }
+  var h='<div class="page-title">History</div>';
+  h+='<div class="filters">';
+  var types=[{k:'all',l:'All'}];
+  if(cfg.trackSleep)types.push({k:'sleep',l:'😴 Sleep'});
+  if(cfg.trackFeed)types.push({k:'feed',l:'🍼 Feed'});
+  if(cfg.trackDiaper)types.push({k:'diaper',l:'🧷 Diaper'});
+  if(cfg.trackPump)types.push({k:'pump',l:'🧴 Pump'});
+  types.push({k:'medicine',l:'💊 Medicine'});
+  types.forEach(function(f){h+='<span class="chip '+(typeF===f.k?'sel':'')+'" onclick="typeF=\''+ f.k+'\';render()">'+f.l+'</span>';});
+  h+='</div>';
+  if(typeF!=='medicine'){
+    h+='<div class="filters" style="margin-bottom:16px">';
+    ['all','today','yesterday','2daysago','3daysago'].forEach(function(f){
+      var lbl={all:'All time',today:'Today',yesterday:'Yesterday','2daysago':'2 days ago','3daysago':'3 days ago'}[f];
+      h+='<span class="chip '+(timeF===f?'sel':'')+'" onclick="timeF=\''+f+'\';render()">'+lbl+'</span>';});
+    h+='</div>';
+  } else { h+='<div style="margin-bottom:16px"></div>'; }
 
-  // Medicine-only view
-  if(typeF==="medicine"){
+  if(typeF==='medicine'){
     var medEvs=applyTimeFilter(allMedicineGiven.slice(),function(g){return g.givenAt;});
-    if(!medEvs.length){h+="<div style="text-align:center;padding:40px;color:var(--muted)">No medicine given yet</div>";document.getElementById("main").innerHTML=h;return;}
+    if(!medEvs.length){h+='<div style="text-align:center;padding:40px;color:var(--muted)">No medicine given yet</div>';document.getElementById('main').innerHTML=h;return;}
     var mg={};medEvs.forEach(function(g){var dk=dayLabel(g.givenAt);if(!mg[dk])mg[dk]=[];mg[dk].push(g);});
     Object.keys(mg).forEach(function(dk){
-      h+="<div class="day-hdr">"+dk+"</div><table class="ev-table">";
+      h+='<div class="day-hdr">'+dk+'</div><table class="ev-table">';
       mg[dk].forEach(function(g){h+=medRow(g);});
-      h+="</table>";
+      h+='</table>';
     });
-    document.getElementById("main").innerHTML=h;return;
+    document.getElementById('main').innerHTML=h;return;
   }
 
-  // Build unified list
   var evs=allEv.slice();
-  if(typeF!=="all")evs=evs.filter(function(e){return e.type===typeF;});
+  if(typeF!=='all')evs=evs.filter(function(e){return e.type===typeF;});
   evs=applyTimeFilter(evs,function(e){return e.startTime;});
-  var unified=evs.map(function(e){return {type:"event",time:e.startTime,data:e};});
-  if(typeF==="all"){
+  var unified=evs.map(function(e){return {type:'event',time:e.startTime,data:e};});
+  if(typeF==='all'){
     var medFiltered=applyTimeFilter(allMedicineGiven.slice(),function(g){return g.givenAt;});
-    medFiltered.forEach(function(g){unified.push({type:"medicine",time:g.givenAt,data:g});});
+    medFiltered.forEach(function(g){unified.push({type:'medicine',time:g.givenAt,data:g});});
     unified.sort(function(a,b){return b.time-a.time;});
   }
-  if(!unified.length){h+="<div style="text-align:center;padding:40px;color:var(--muted)">No events</div>";document.getElementById("main").innerHTML=h;return;}
+  if(!unified.length){h+='<div style="text-align:center;padding:40px;color:var(--muted)">No events</div>';document.getElementById('main').innerHTML=h;return;}
 
   var grouped={};
   unified.forEach(function(item){var dk=dayLabel(item.time);if(!grouped[dk])grouped[dk]=[];grouped[dk].push(item);});
   Object.keys(grouped).forEach(function(dk){
-    h+="<div class="day-hdr">"+dk+"</div><table class="ev-table">";
+    h+='<div class="day-hdr">'+dk+'</div><table class="ev-table">';
     grouped[dk].forEach(function(item){
-      if(item.type==="medicine"){h+=medRow(item.data);}
+      if(item.type==='medicine'){h+=medRow(item.data);}
       else{
         var e=item.data;
-        var time=pad(e.startTime.getHours())+":"+pad(e.startTime.getMinutes());
+        var time=pad(e.startTime.getHours())+':'+pad(e.startTime.getMinutes());
         var props=[];
         if(e.duration)props.push(fmtMin(e.duration));
         else if(e.endTime)props.push(fmt(e.endTime-e.startTime));
-        else if((e.type==="sleep"||e.type==="feed")&&!e.endTime&&!e.duration)props.push("ongoing");
+        else if((e.type==='sleep'||e.type==='feed')&&!e.endTime&&!e.duration)props.push('ongoing');
         if(e.side)props.push(e.side);
-        if(e.source==="pump")props.push("pumped milk");
-        if(e.mlFed)props.push(e.mlFed+"ml");
-        if(e.type==="pump"){if(e.ml)props.push(e.ml+"ml");if(e.storage)props.push(e.storage);if(e.spoiled)props.push("⚠️ spoiled");}
-        h+="<tr><td class="td-time">"+time+"</td><td><div class="td-event">"+displayName(e)+"</div>";
-        if(props.length)h+="<div class="td-props">"+props.join(" · ")+"</div>";
-        h+="</td><td class="td-acts"><button onclick="editEv('"+e.id+"')" >✏️</button> <button class="del" onclick="delEv('"+e.id+"','"+displayName(e).replace(/'/g,"\\'")+ "')" >🗑</button></td></tr>";
+        if(e.source==='pump')props.push('pumped milk');
+        if(e.mlFed)props.push(e.mlFed+'ml');
+        if(e.type==='pump'){if(e.ml)props.push(e.ml+'ml');if(e.storage)props.push(e.storage);if(e.spoiled)props.push('⚠️ spoiled');}
+        h+='<tr><td class="td-time">'+time+'</td><td><div class="td-event">'+displayName(e)+'</div>';
+        if(props.length)h+='<div class="td-props">'+props.join(' · ')+'</div>';
+        h+='</td><td class="td-acts"><button onclick="editEv(\''+e.id+'\')" >✏️</button> <button class="del" onclick="delEv(\''+e.id+'\',\''+displayName(e).replace(/'/g,"\\'")+'\')" >🗑</button></td></tr>';
       }
     });
-    h+="</table>";
+    h+='</table>';
   });
-  document.getElementById("main").innerHTML=h;
+  document.getElementById('main').innerHTML=h;
 }
 
 // ==================== PUMP PAGE ====================
