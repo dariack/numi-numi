@@ -334,6 +334,7 @@ class _PumpTab extends StatefulWidget {
 
 class _PumpTabState extends State<_PumpTab> {
   Map<String, List<Map<String, dynamic>>> _stock = {};
+  Map<String, dynamic> _pumpStats = {};
   bool _loading = true;
 
   @override
@@ -343,9 +344,19 @@ class _PumpTabState extends State<_PumpTab> {
   }
 
   Future<void> _load() async {
-    final stock = await widget.service.getStockByStorage();
-    if (mounted) setState(() { _stock = stock; _loading = false; });
+    final results = await Future.wait([
+      widget.service.getStockByStorage(),
+      widget.service.getPumpStats(),
+    ]);
+    if (mounted) setState(() {
+      _stock = results[0] as Map<String, List<Map<String, dynamic>>>;
+      _pumpStats = results[1] as Map<String, dynamic>;
+      _loading = false;
+    });
   }
+
+  String _fmtTime(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -353,9 +364,30 @@ class _PumpTabState extends State<_PumpTab> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1E2130) : Colors.white;
 
+    final avgPumped = _pumpStats['avgPumpedPerDay'] as double? ?? 0;
+    final avgUsed = _pumpStats['avgUsedPerDay'] as double? ?? 0;
+    final recentUsage = _pumpStats['recentUsage'] as List<Map<String, dynamic>>? ?? [];
+
     return RefreshIndicator(
         onRefresh: _load,
         child: ListView(padding: const EdgeInsets.all(16), children: [
+
+          // 5-day avg stats
+          Text('5-Day Averages', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: Colors.grey.shade500, letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '🥛', title: 'Avg Pumped',
+              value: avgPumped > 0 ? '${avgPumped.round()}ml' : '--',
+              color: kPumpColor, subtitle: 'per day · 5d avg')),
+            const SizedBox(width: 10),
+            Expanded(child: _InsightCard(cardBg: cardBg, emoji: '🍼', title: 'Avg Used',
+              value: avgUsed > 0 ? '${avgUsed.round()}ml' : '--',
+              color: kPumpColor, subtitle: 'per day · 5d avg')),
+          ]),
+          const SizedBox(height: 20),
+
+          // Stock overview
           Text('Stock Overview', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
               color: Colors.grey.shade500, letterSpacing: 0.5)),
           const SizedBox(height: 8),
@@ -364,7 +396,48 @@ class _PumpTabState extends State<_PumpTab> {
           _stockSection(cardBg, '❄️ Fridge', 'Lasts 4 days', _stock['fridge'] ?? []),
           const SizedBox(height: 8),
           _stockSection(cardBg, '🧊 Freezer', 'Lasts 6 months', _stock['freezer'] ?? []),
+          const SizedBox(height: 20),
 
+          // Recent pump milk usage (last 3 days)
+          Text('Recently Used (last 3 days)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: Colors.grey.shade500, letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          if (recentUsage.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text('No pump milk used in the last 3 days',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: cardBg,
+                border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
+              child: Column(children: recentUsage.asMap().entries.map((entry) {
+                final i = entry.key;
+                final u = entry.value;
+                final feedTime = u['feedTime'] as DateTime;
+                final mlUsed = u['mlUsed'] as int;
+                final pumpId = u['pumpId'] as String?;
+                final idStr = pumpId != null ? '#$pumpId' : '—';
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    border: i < recentUsage.length - 1
+                        ? Border(bottom: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200))
+                        : null,
+                  ),
+                  child: Row(children: [
+                    Text(_fmtTime(feedTime),
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(idStr,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                    Text('${mlUsed}ml used',
+                        style: TextStyle(fontSize: 13, color: kPumpColor, fontWeight: FontWeight.w600)),
+                  ]),
+                );
+              }).toList()),
+            ),
         ]),
     );
   }

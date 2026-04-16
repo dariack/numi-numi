@@ -398,6 +398,26 @@ function renderPump(){
     if(stock[st])stock[st].push({id:p.id,ml:remaining,expires:p.expiresAt,pumpId:p.pumpId,startTime:p.startTime});
   });
 
+  // 5-day avg pumped and used
+  var d5=new Date(now-864e5*5);
+  var pumps5d=pumps.filter(function(p){return p.startTime>=d5});
+  var totalPumped5d=pumps5d.reduce(function(s,p){return s+(p.ml||0)},0);
+  var avgPumped5d=totalPumped5d/5;
+  var feeds5d=feedsFromPump.filter(function(f){return f.startTime>=d5});
+  var totalUsed5d=feeds5d.reduce(function(s,f){
+    var ml=f.mlFed||0;
+    if(!ml&&f.linkedPumps){try{ml=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0)}catch(e){}}
+    return s+ml;
+  },0);
+  var avgUsed5d=totalUsed5d/5;
+
+  // 5-day avg stats
+  h+='<div class="section-label">5-Day Averages</div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🥛</div><div class="info"><div class="t" style="color:var(--pump)">'+(avgPumped5d>0?Math.round(avgPumped5d)+'ml':'--')+'</div><div class="l">Avg pumped/day</div><div class="l2">5-day avg</div></div></div>';
+  h+='<div class="stat" style="background:var(--card)"><div class="em">🍼</div><div class="info"><div class="t" style="color:var(--pump)">'+(avgUsed5d>0?Math.round(avgUsed5d)+'ml':'--')+'</div><div class="l">Avg used/day</div><div class="l2">5-day avg</div></div></div>';
+  h+='</div>';
+
   h+='<div class="stats-section"><div class="section-label">Stock Overview</div>';
   var storages=[{k:'room',l:'🏠 Room Temp',c:'4h'},{k:'fridge',l:'❄️ Fridge',c:'4 days'},{k:'freezer',l:'🧊 Freezer',c:'6 months'}];
   storages.forEach(function(s){
@@ -415,6 +435,38 @@ function renderPump(){
     h+='</div>';
   });
   h+='</div>';
+
+  // Recently used pump milk (last 3 days)
+  var d3=new Date(now-864e5*3);
+  var pumpById={};pumps.forEach(function(p){pumpById[p.id]=p;});
+  var recentUsage=[];
+  feedsFromPump.filter(function(f){return f.startTime>=d3;}).forEach(function(f){
+    if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){
+      var pump=pumpById[lp.id];
+      recentUsage.push({feedTime:f.startTime,mlUsed:lp.ml,pumpId:pump&&pump.pumpId?pump.pumpId:null});
+    })}catch(e){}}
+    else if(f.linkedPumpId){
+      var pump2=pumpById[f.linkedPumpId];
+      recentUsage.push({feedTime:f.startTime,mlUsed:f.mlFed||0,pumpId:pump2&&pump2.pumpId?pump2.pumpId:null});
+    }
+  });
+  recentUsage.sort(function(a,b){return b.feedTime-a.feedTime;});
+
+  h+='<div class="section-label" style="margin-top:20px">Recently Used (last 3 days)</div>';
+  if(!recentUsage.length){h+='<div style="color:var(--muted);font-size:0.88rem;padding:12px 0">No pump milk used in the last 3 days</div>';}
+  else{
+    h+='<div class="stats-section" style="padding:0">';
+    recentUsage.forEach(function(u,i){
+      var idStr=u.pumpId?'#'+u.pumpId:'—';
+      var timeStr=shortDate(u.feedTime);
+      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;'+(i<recentUsage.length-1?'border-bottom:1px solid var(--border)':'')+'">'+
+        '<span style="font-size:0.82rem;color:var(--muted);font-weight:600;min-width:90px">'+timeStr+'</span>'+
+        '<span style="flex:1;font-size:0.9rem;font-weight:600">'+idStr+'</span>'+
+        '<span style="font-size:0.9rem;font-weight:600;color:var(--pump)">'+u.mlUsed+'ml used</span>'+
+        '</div>';
+    });
+    h+='</div>';
+  }
 
   document.getElementById('main').innerHTML=h;
 }

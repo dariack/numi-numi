@@ -728,6 +728,105 @@ class FirestoreService {
     };
   }
 
+  // ===== PUMP STATS =====
+
+  Future<Map<String, dynamic>> getPumpStats() async {
+    final now = DateTime.now();
+    final threeDaysAgo = now.subtract(const Duration(days: 3));
+    final fiveDaysAgo = now.subtract(const Duration(days: 5));
+
+    final results = await Future.wait([
+      _getWithCache(_ref.where('type', isEqualTo: 'pump').orderBy('startTime', descending: true)),
+      _getWithCache(_ref.where('type', isEqualTo: 'feed').orderBy('startTime', descending: true)),
+    ]);
+
+    final allPumps = results[0].docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>().toList();
+    final allFeeds = results[1].docs
+        .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+        .whereType<BabyEvent>()
+        .where((e) => e.source == 'pump').toList();
+
+    // Build usedMl map across all pump feeds
+    final usedMl = <String, int>{};
+    for (final f in allFeeds) {
+      if (f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          for (final entry in list) {
+            final pid = entry['id'] as String;
+            final pml = (entry['ml'] as num).toInt();
+            usedMl[pid] = (usedMl[pid] ?? 0) + pml;
+          }
+        } catch (_) {}
+      } else if (f.linkedPumpId != null) {
+        usedMl[f.linkedPumpId!] = (usedMl[f.linkedPumpId!] ?? 0) + (f.mlFed ?? 0);
+      }
+    }
+
+    // 5-day avg pumped and used per day
+    final pumps5d = allPumps.where((p) => p.startTime.isAfter(fiveDaysAgo)).toList();
+    final totalPumped5d = pumps5d.fold<int>(0, (s, p) => s + (p.ml ?? 0));
+    final avgPumpedPerDay = totalPumped5d / 5.0;
+
+    final feeds5d = allFeeds.where((f) => f.startTime.isAfter(fiveDaysAgo)).toList();
+    int totalUsed5d = 0;
+    for (final f in feeds5d) {
+      int ml = f.mlFed ?? 0;
+      if (ml == 0 && f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+        } catch (_) {}
+      }
+      totalUsed5d += ml;
+    }
+    final avgUsedPerDay = totalUsed5d / 5.0;
+
+    // Recent pump feeds (last 3 days) — enriched with pump event info
+    final recentPumpFeeds = allFeeds.where((f) => f.startTime.isAfter(threeDaysAgo)).toList();
+    final pumpById = <String, BabyEvent>{};
+    for (final p in allPumps) { pumpById[p.id] = p; }
+
+    final recentUsage = <Map<String, dynamic>>[];
+    for (final f in recentPumpFeeds) {
+      final feedTime = f.startTime;
+      if (f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          for (final entry in list) {
+            final pid = entry['id'] as String;
+            final pml = (entry['ml'] as num).toInt();
+            final pump = pumpById[pid];
+            recentUsage.add({
+              'feedTime': feedTime,
+              'mlUsed': pml,
+              'pumpId': pump?.pumpId,
+              'pumpEventId': pid,
+            });
+          }
+        } catch (_) {}
+      } else if (f.linkedPumpId != null) {
+        final pump = pumpById[f.linkedPumpId!];
+        recentUsage.add({
+          'feedTime': feedTime,
+          'mlUsed': f.mlFed ?? 0,
+          'pumpId': pump?.pumpId,
+          'pumpEventId': f.linkedPumpId,
+        });
+      }
+    }
+    // Sort by feed time descending
+    recentUsage.sort((a, b) => (b['feedTime'] as DateTime).compareTo(a['feedTime'] as DateTime));
+
+    return {
+      'avgPumpedPerDay': avgPumpedPerDay,
+      'avgUsedPerDay': avgUsedPerDay,
+      'recentUsage': recentUsage,
+    };
+  }
+
   // ===== PUMP ID =====
 
   /// Returns next 3-digit pump ID starting at 100, incrementing by 1.
