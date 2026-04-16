@@ -804,6 +804,8 @@ class FirestoreService {
               'mlUsed': pml,
               'pumpId': pump?.pumpId,
               'pumpEventId': pid,
+              'pumpedAt': pump?.startTime,
+              'pumpedMl': pump?.ml,
             });
           }
         } catch (_) {}
@@ -814,6 +816,8 @@ class FirestoreService {
           'mlUsed': f.mlFed ?? 0,
           'pumpId': pump?.pumpId,
           'pumpEventId': f.linkedPumpId,
+          'pumpedAt': pump?.startTime,
+          'pumpedMl': pump?.ml,
         });
       }
     }

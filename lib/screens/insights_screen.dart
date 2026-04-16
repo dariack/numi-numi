@@ -372,6 +372,17 @@ class _PumpTabState extends State<_PumpTab> {
         onRefresh: _load,
         child: ListView(padding: const EdgeInsets.all(16), children: [
 
+          // Stock overview
+          Text('Stock Overview', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: Colors.grey.shade500, letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          _stockSection(cardBg, '🏠 Room Temp', 'Lasts 4h', _stock['room'] ?? []),
+          const SizedBox(height: 8),
+          _stockSection(cardBg, '❄️ Fridge', 'Lasts 4 days', _stock['fridge'] ?? []),
+          const SizedBox(height: 8),
+          _stockSection(cardBg, '🧊 Freezer', 'Lasts 6 months', _stock['freezer'] ?? []),
+          const SizedBox(height: 20),
+
           // 5-day avg stats
           Text('5-Day Averages', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
               color: Colors.grey.shade500, letterSpacing: 0.5)),
@@ -385,17 +396,6 @@ class _PumpTabState extends State<_PumpTab> {
               value: avgUsed > 0 ? '${avgUsed.round()}ml' : '--',
               color: kPumpColor, subtitle: 'per day · 5d avg')),
           ]),
-          const SizedBox(height: 20),
-
-          // Stock overview
-          Text('Stock Overview', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: Colors.grey.shade500, letterSpacing: 0.5)),
-          const SizedBox(height: 8),
-          _stockSection(cardBg, '🏠 Room Temp', 'Lasts 4h', _stock['room'] ?? []),
-          const SizedBox(height: 8),
-          _stockSection(cardBg, '❄️ Fridge', 'Lasts 4 days', _stock['fridge'] ?? []),
-          const SizedBox(height: 8),
-          _stockSection(cardBg, '🧊 Freezer', 'Lasts 6 months', _stock['freezer'] ?? []),
           const SizedBox(height: 20),
 
           // Recent pump milk usage (last 3 days)
@@ -415,10 +415,14 @@ class _PumpTabState extends State<_PumpTab> {
               child: Column(children: recentUsage.asMap().entries.map((entry) {
                 final i = entry.key;
                 final u = entry.value;
-                final feedTime = u['feedTime'] as DateTime;
-                final mlUsed = u['mlUsed'] as int;
                 final pumpId = u['pumpId'] as String?;
+                final pumpEventId = u['pumpEventId'] as String?;
+                final mlUsed = u['mlUsed'] as int;
                 final idStr = pumpId != null ? '#$pumpId' : '—';
+                // Look up the pump event for its startTime and ml
+                // These are stored in the usage map from getPumpStats
+                final pumpedAt = u['pumpedAt'] as DateTime?;
+                final pumpedMl = u['pumpedMl'] as int?;
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
@@ -427,11 +431,16 @@ class _PumpTabState extends State<_PumpTab> {
                         : null,
                   ),
                   child: Row(children: [
-                    Text(_fmtTime(feedTime),
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(idStr,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                    Text(idStr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      if (pumpedAt != null)
+                        Text('pumped: ${_fmtTime(pumpedAt)}',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                      if (pumpedMl != null)
+                        Text('${pumpedMl}ml total',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                    ])),
                     Text('${mlUsed}ml used',
                         style: TextStyle(fontSize: 13, color: kPumpColor, fontWeight: FontWeight.w600)),
                   ]),
