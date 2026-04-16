@@ -2,11 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/event.dart';
+import '../models/medicine.dart';
 import '../services/firestore_service.dart';
+import '../services/medicine_service.dart';
 
 class HistoryScreen extends StatefulWidget {
   final FirestoreService service;
-  const HistoryScreen({super.key, required this.service});
+  final MedicineService? medicineService;
+  const HistoryScreen({super.key, required this.service, this.medicineService});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -74,6 +77,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   _Chip(label: '🧷 Diaper', selected: _filter == 'diaper', onTap: () => setState(() => _filter = 'diaper')),
                   const SizedBox(width: 6),
                   _Chip(label: '🥛 Pump', selected: _filter == 'pump', onTap: () => setState(() => _filter = 'pump')),
+                  const SizedBox(width: 6),
+                  _Chip(label: '💊 Medicine', selected: _filter == 'medicine', onTap: () => setState(() => _filter = 'medicine')),
                 ])),
                 const SizedBox(height: 6),
                 // Time filters
@@ -91,14 +96,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
           )),
-          Expanded(child: StreamBuilder<List<BabyEvent>>(
+          Expanded(child: _filter == 'medicine'
+            ? _MedicineHistory(service: widget.medicineService)
+            : StreamBuilder<List<BabyEvent>>(
             stream: widget.service.eventsStream(limit: 500),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
+                return Center(child: Text('Error: \${snapshot.error}'));
               }
               var events = snapshot.data ?? [];
 
@@ -221,6 +228,62 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (_) => _EditEventSheet(event: event, service: widget.service),
     );
     if (result == true) setState(() {});
+  }
+}
+
+// ── Medicine History Widget ──────────────────────────────────────────
+class _MedicineHistory extends StatelessWidget {
+  final MedicineService? service;
+  const _MedicineHistory({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    if (service == null) {
+      return const Center(child: Text('Medicine tracking not available'));
+    }
+    return StreamBuilder<List<MedicineGiven>>(
+      stream: service!.givenStream(limitDays: 30),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final items = snap.data ?? [];
+        if (items.isEmpty) {
+          return const Center(child: Text('No medicine given yet'));
+        }
+        final grouped = <String, List<MedicineGiven>>{};
+        for (final g in items) {
+          final key = DateFormat('EEE, MMM d').format(g.givenAt);
+          grouped.putIfAbsent(key, () => []).add(g);
+        }
+        return ListView(padding: const EdgeInsets.all(16), children: [
+          ...grouped.entries.expand((entry) => [
+            Padding(
+              padding: const EdgeInsets.only(top: 16, bottom: 8),
+              child: Text(entry.key, style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+            ),
+            ...entry.value.map((g) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                SizedBox(width: 48, child: Text(DateFormat('HH:mm').format(g.givenAt),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+                const SizedBox(width: 12),
+                const Text('💊', style: TextStyle(fontSize: 18)),
+                const SizedBox(width: 8),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(g.medicineName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  if (g.dose != null)
+                    Text(g.dose!, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                  if (g.scheduledTime != null)
+                    Text('Scheduled: ${g.scheduledTime}', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                ])),
+              ]),
+            )),
+          ]),
+        ]);
+      },
+    );
   }
 }
 

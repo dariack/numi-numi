@@ -128,6 +128,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="nav-item" data-tab="sleep" onclick="setTab('sleep')" style="display:none"><span class="icon">😴</span> Sleep</div>
       <div class="nav-item" data-tab="diaper" onclick="setTab('diaper')" style="display:none"><span class="icon">🧷</span> Diaper</div>
       <div class="nav-item" data-tab="pump" onclick="setTab('pump')" style="display:none"><span class="icon">🧴</span> Pump</div>
+      <div class="nav-item" data-tab="medicine" onclick="setTab('medicine')"><span class="icon">💊</span> Medicine</div>
       <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
         <div class="fam-name" id="fam-display"></div>
@@ -151,6 +152,7 @@ db.enablePersistence({synchronizeTabs:true}).catch(function(){});
 var fid=localStorage.getItem('familyId')||'',unsub=null,allEv=[],tab='home',typeF='all',timeF='all',charts={},rd=7;
 var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false};
 var cfgUnsub=null;
+var allMedicines=[],allMedicineGiven=[],medUnsub=null,medGivenUnsub=null;
 
 if(fid)startApp();else showConnect();
 
@@ -159,13 +161,14 @@ function showConnect(){
   document.getElementById('connect-root').innerHTML='<div class="connect-screen"><div class="big-emoji">👶</div><h2>Baby Tracker</h2><p>Enter your family code to get started.<br>Share this code with your partner to sync data.</p><input type="text" id="fid" placeholder="e.g. smith-family" onkeydown="if(event.key===\'Enter\')connect()"/><br><button onclick="connect()">Get Started</button></div>';
 }
 function connect(){fid=document.getElementById('fid').value.trim().toLowerCase().replace(/\s+/g,'-');if(!fid)return;localStorage.setItem('familyId',fid);startApp()}
-function disconnect(){localStorage.removeItem('familyId');fid='';if(unsub)unsub();if(cfgUnsub)cfgUnsub();showConnect()}
+function disconnect(){localStorage.removeItem('familyId');fid='';if(unsub)unsub();if(cfgUnsub)cfgUnsub();if(medUnsub)medUnsub();if(medGivenUnsub)medGivenUnsub();showConnect()}
 function startApp(){
   document.getElementById('connect-root').innerHTML='';
   document.getElementById('app-root').style.display='block';
   document.getElementById('fam-display').textContent=fid;
   listenConfig();
   listen();
+  listenMedicines();
 }
 function listenConfig(){
   if(cfgUnsub)cfgUnsub();
@@ -195,7 +198,7 @@ function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<d
 
 function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
 function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
-  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='settings')renderSettings()}
+  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='medicine')renderMedicine();else if(tab==='settings')renderSettings()}
 
 // ==================== HOME ====================
 // Compute stats from allEv — pure JS, no network calls
@@ -242,6 +245,17 @@ function renderHomeStats(){
 
 function buildHomeStatsHtml(){
   var s=computeHomeStats(),now=new Date(),h='';
+  // Medicine reminders
+  getPendingReminders().forEach(function(r){
+    var med=r.medicine,slot=r.scheduledTime;
+    var label=med.dose?med.name+' ('+med.dose+')':med.name;
+    h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
+      +'<span style="font-size:1.3rem">💊</span>'
+      +'<div style="flex:1"><div style="font-weight:700;font-size:0.9rem;color:#a855f7">Give '+label+'</div>'
+      +'<div style="font-size:0.78rem;color:var(--muted)">Scheduled: '+slot+'</div></div>'
+      +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:#a855f7;color:#fff;border:none;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.85rem">✓ Given</button>'
+      +'</div>';
+  });
   var ong=s.ong;
   if(ong){var dur=fmt(now-ong.startTime);var cls=ong.type==='sleep'?'':'feed';var st=ong.side?' ('+ong.side+')':'';
     h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>';}
@@ -325,6 +339,7 @@ function renderHistory(){
   if(cfg.trackFeed)types.push({k:'feed',l:'🍼 Feed'});
   if(cfg.trackDiaper)types.push({k:'diaper',l:'🧷 Diaper'});
   if(cfg.trackPump)types.push({k:'pump',l:'🧴 Pump'});
+  types.push({k:'medicine',l:'💊 Medicine'});
   types.forEach(function(f){h+='<span class="chip '+(typeF===f.k?'sel':'')+'" onclick="typeF=\''+f.k+'\';render()">'+f.l+'</span>'});
   h+='</div><div class="filters" style="margin-bottom:16px">';
   ['all','today','yesterday','2daysago','3daysago'].forEach(function(f){var lbl={all:'All time',today:'Today',yesterday:'Yesterday','2daysago':'2 days ago','3daysago':'3 days ago'}[f];
@@ -339,6 +354,7 @@ function renderHistory(){
   else if(timeF==='2daysago'){var d2=new Date(today6.getTime()-2*864e5);var d1=new Date(today6.getTime()-864e5);evs=evs.filter(function(e){return e.startTime>=d2&&e.startTime<d1})}
   else if(timeF==='3daysago'){var d3=new Date(today6.getTime()-3*864e5);var d2b=new Date(today6.getTime()-2*864e5);evs=evs.filter(function(e){return e.startTime>=d3&&e.startTime<d2b})}
 
+  if(typeF==='medicine'){renderMedicineHistory();return;}
   var hasDur=typeF==='sleep'||typeF==='feed';
   function sumDur(arr){return arr.reduce(function(s,e){return s+(e.duration||0)},0)}
 
@@ -475,6 +491,253 @@ function renderPump(){
 function markSpoiled(id){if(confirm('Mark this pump as spoiled?'))db.collection('families').doc(fid).collection('events').doc(id).update({spoiled:true})}
 
 // ==================== SETTINGS ====================
+
+// ==================== MEDICINE ====================
+
+function listenMedicines(){
+  if(medUnsub)medUnsub();
+  if(medGivenUnsub)medGivenUnsub();
+  var since=new Date(Date.now()-30*864e5);
+  medUnsub=db.collection('families').doc(fid).collection('medicines')
+    .where('active','==',true)
+    .onSnapshot(function(s){
+      allMedicines=[];
+      s.forEach(function(d){try{var data=d.data();allMedicines.push(Object.assign({id:d.id},data));}catch(e){}});
+      if(tab==='medicine')renderMedicine();
+      if(tab==='home')renderHomeStats();
+    });
+  medGivenUnsub=db.collection('families').doc(fid).collection('medicineGiven')
+    .where('givenAt','>=',firebase.firestore.Timestamp.fromDate(since))
+    .orderBy('givenAt','desc')
+    .onSnapshot(function(s){
+      allMedicineGiven=[];
+      s.forEach(function(d){try{var data=d.data();allMedicineGiven.push(Object.assign({id:d.id},data,{givenAt:data.givenAt.toDate()}));}catch(e){}});
+      if(tab==='medicine')renderMedicine();
+      if(tab==='home')renderHomeStats();
+    });
+}
+
+function getPendingReminders(){
+  var now=new Date(),pending=[];
+  var todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  var givenToday=allMedicineGiven.filter(function(g){return g.givenAt>=todayStart;});
+  allMedicines.forEach(function(med){
+    if(med.scheduleType==='asNeeded')return;
+    if(med.scheduleType==='specificDays'){
+      var dow=(now.getDay()+6)%7; // 0=Mon
+      if(!med.daysOfWeek||!med.daysOfWeek.includes(dow))return;
+    }
+    (med.timesOfDay||[]).forEach(function(slot){
+      var parts=slot.split(':'),slotH=+parts[0],slotM=+parts[1];
+      var slotTime=new Date(now.getFullYear(),now.getMonth(),now.getDate(),slotH,slotM);
+      if(now<new Date(slotTime-15*60000))return; // not yet within 15min window
+      var alreadyGiven=givenToday.some(function(g){return g.medicineId===med.id&&g.scheduledTime===slot;});
+      if(!alreadyGiven)pending.push({medicine:med,scheduledTime:slot});
+    });
+  });
+  return pending;
+}
+
+function markMedicineGiven(medId,slot){
+  var med=allMedicines.find(function(m){return m.id===medId;});
+  if(!med)return;
+  db.collection('families').doc(fid).collection('medicineGiven').add({
+    medicineId:medId,medicineName:med.name,dose:med.dose||null,
+    givenAt:firebase.firestore.Timestamp.now(),givenBy:'web',
+    scheduledTime:slot||null
+  }).then(function(){showSnack('💊 '+med.name+' marked as given');});
+}
+
+function renderMedicine(){
+  var h='<div class="page-title">💊 Medicines</div>';
+
+  // Pending reminders
+  var pending=getPendingReminders();
+  if(pending.length){
+    h+='<div class="section-label">Reminders</div>';
+    pending.forEach(function(r){
+      var med=r.medicine,slot=r.scheduledTime;
+      var label=med.dose?med.name+' ('+med.dose+')':med.name;
+      h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'
+        +'<span style="font-size:1.5rem">💊</span>'
+        +'<div style="flex:1"><div style="font-weight:700;color:#a855f7">Give '+label+'</div>'
+        +'<div style="font-size:0.82rem;color:var(--muted)">Scheduled: '+slot+'</div></div>'
+        +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:#a855f7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer">✓ Given</button>'
+        +'</div>';
+    });
+  }
+
+  // Medicine list
+  h+='<div class="section-label" style="margin-top:20px">Medicines</div>';
+  if(!allMedicines.length){
+    h+='<div style="text-align:center;padding:40px;color:var(--muted)">No medicines set up yet</div>';
+  } else {
+    allMedicines.forEach(function(med){
+      var label=med.dose?med.name+' ('+med.dose+')':med.name;
+      var sched=scheduleDescription(med);
+      h+='<div class="stat" style="background:var(--card);margin-bottom:8px">'
+        +'<div class="em">💊</div>'
+        +'<div class="info"><div class="t">'+label+'</div><div class="l" style="color:var(--purple)">'+sched+'</div></div>'
+        +'<div style="display:flex;gap:6px">'
+        +'<button onclick="editMedicine(\''+med.id+'\')" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:6px">✏️</button>'
+        +'<button onclick="deleteMedicine(\''+med.id+'\',\''+med.name+'\')" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:6px">🗑</button>'
+        +'</div></div>';
+    });
+  }
+  h+='<div style="margin-top:16px"><button onclick="openAddMedicine(null)" style="background:var(--purple);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer">＋ Add Medicine</button></div>';
+
+  // Recent history (last 7 days)
+  h+='<div class="section-label" style="margin-top:28px">Recent History</div>';
+  var sevenDaysAgo=new Date(Date.now()-7*864e5);
+  var recent=allMedicineGiven.filter(function(g){return g.givenAt>=sevenDaysAgo;});
+  if(!recent.length){h+='<div style="color:var(--muted);font-size:0.88rem;padding:8px 0">No medicine given in the last 7 days</div>';}
+  else{
+    h+='<table class="ev-table">';
+    recent.forEach(function(g){
+      var time=pad(g.givenAt.getHours())+':'+pad(g.givenAt.getMinutes());
+      var date=pad(g.givenAt.getDate())+'/'+pad(g.givenAt.getMonth()+1);
+      var label=g.medicineName+(g.dose?' · '+g.dose:'');
+      var slotStr=g.scheduledTime?' · sched: '+g.scheduledTime:'';
+      h+='<tr><td class="td-time">'+date+'<br>'+time+'</td><td><div class="td-event">💊 '+label+'</div>'
+        +'<div class="td-props">given'+slotStr+'</div></td></tr>';
+    });
+    h+='</table>';
+  }
+
+  document.getElementById('main').innerHTML=h;
+}
+
+function scheduleDescription(med){
+  if(med.scheduleType==='asNeeded')return 'As needed';
+  if(med.scheduleType==='onceDailyAt')return 'Once daily at '+(med.timesOfDay||['?'])[0];
+  if(med.scheduleType==='customTimes')return (med.timesOfDay||[]).length+'× daily at '+(med.timesOfDay||[]).join(', ');
+  if(med.scheduleType==='specificDays'){
+    var days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    var dStr=(med.daysOfWeek||[]).map(function(d){return days[d%7];}).join(', ');
+    return dStr+' at '+(med.timesOfDay||[]).join(', ');
+  }
+  return '';
+}
+
+function deleteMedicine(id,name){
+  if(confirm('Remove '+name+'? History is kept.'))
+    db.collection('families').doc(fid).collection('medicines').doc(id).update({active:false});
+}
+function editMedicine(id){
+  var med=allMedicines.find(function(m){return m.id===id;});
+  if(med)openAddMedicine(med);
+}
+
+// ── Add/Edit medicine modal ──────────────────────────────────────────
+var medWiz={id:null,name:'',dose:'',scheduleType:'onceDailyAt',times:['08:00'],days:[]};
+
+function openAddMedicine(existing){
+  if(existing){
+    medWiz={id:existing.id,name:existing.name,dose:existing.dose||'',
+      scheduleType:existing.scheduleType||'onceDailyAt',
+      times:(existing.timesOfDay&&existing.timesOfDay.length)?existing.timesOfDay.slice():['08:00'],
+      days:(existing.daysOfWeek||[]).slice()};
+  } else {
+    medWiz={id:null,name:'',dose:'',scheduleType:'onceDailyAt',times:['08:00'],days:[]};
+  }
+  renderMedModal();
+}
+
+function renderMedModal(){
+  var dayLabels=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var schedOpts=[
+    {k:'onceDailyAt',l:'Once daily'},
+    {k:'customTimes',l:'Multiple times'},
+    {k:'specificDays',l:'Specific days'},
+    {k:'asNeeded',l:'As needed'}
+  ];
+  var h='<div class="modal-bg" onclick="if(event.target===this)closeMedModal()"><div class="modal">';
+  h+='<h3>'+(medWiz.id?'✏️ Edit':'💊 Add')+' Medicine</h3>';
+  h+='<div class="custom-row"><label>Name</label><input type="text" id="med-name" value="'+medWiz.name+'" placeholder="e.g. Vitamin D"/></div>';
+  h+='<div class="custom-row"><label>Dose (optional)</label><input type="text" id="med-dose" value="'+medWiz.dose+'" placeholder="e.g. 0.5ml, 1 drop"/></div>';
+  h+='<div class="step-label">Schedule</div><div class="opts" style="margin-bottom:12px">';
+  schedOpts.forEach(function(o){
+    h+='<div class="opt '+(medWiz.scheduleType===o.k?'sel':'')+'" onclick="medWiz.scheduleType=\''+o.k+'\';snapMedInputs();renderMedModal()">'+o.l+'</div>';
+  });
+  h+='</div>';
+  // Days picker for specificDays
+  if(medWiz.scheduleType==='specificDays'){
+    h+='<div class="step-label">Days</div><div class="opts" style="margin-bottom:12px">';
+    dayLabels.forEach(function(d,i){
+      var sel=medWiz.days.includes(i);
+      h+='<div class="opt '+(sel?'sel':'')+'" onclick="medWiz.days.includes('+i+')?medWiz.days.splice(medWiz.days.indexOf('+i+'),1):medWiz.days.push('+i+');renderMedModal()">'+d+'</div>';
+    });
+    h+='</div>';
+  }
+  // Time slots
+  if(medWiz.scheduleType!=='asNeeded'){
+    h+='<div class="step-label">Time'+(medWiz.times.length>1?'s':'')+'</div>';
+    medWiz.times.forEach(function(t,i){
+      h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      h+='<input type="time" id="med-time-'+i+'" value="'+t+'" oninput="medWiz.times['+i+']=this.value" style="background:var(--bg);border:1px solid var(--purple);color:var(--text);padding:8px 12px;border-radius:8px;font-size:1rem;flex:1"/>';
+      if(medWiz.scheduleType==='customTimes'&&medWiz.times.length>1)
+        h+='<button onclick="medWiz.times.splice('+i+',1);renderMedModal()" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:1.2rem">✕</button>';
+      h+='</div>';
+    });
+    if(medWiz.scheduleType==='customTimes')
+      h+='<button onclick="medWiz.times.push(\'12:00\');renderMedModal()" style="background:none;border:1px dashed var(--border);color:var(--purple);padding:6px 14px;border-radius:8px;cursor:pointer;margin-bottom:8px">＋ Add time</button>';
+  }
+  h+='<div class="btn-row"><button class="btn-cancel" onclick="closeMedModal()">Cancel</button>'
+    +'<button class="btn-save" onclick="saveMedicine()">'+(medWiz.id?'Save Changes':'Add Medicine')+'</button></div>';
+  h+='</div></div>';
+  document.getElementById('modal-root').innerHTML=h;
+}
+
+function snapMedInputs(){
+  var n=document.getElementById('med-name');if(n)medWiz.name=n.value;
+  var d=document.getElementById('med-dose');if(d)medWiz.dose=d.value;
+  medWiz.times.forEach(function(_,i){var el=document.getElementById('med-time-'+i);if(el)medWiz.times[i]=el.value;});
+}
+
+function closeMedModal(){document.getElementById('modal-root').innerHTML='';}
+
+function saveMedicine(){
+  snapMedInputs();
+  var name=(document.getElementById('med-name')||{value:medWiz.name}).value.trim();
+  if(!name){alert('Enter a medicine name');return;}
+  var dose=(document.getElementById('med-dose')||{value:medWiz.dose}).value.trim();
+  var data={name:name,dose:dose||null,scheduleType:medWiz.scheduleType,
+    timesOfDay:medWiz.scheduleType==='asNeeded'?[]:medWiz.times.slice(),
+    daysOfWeek:medWiz.scheduleType==='specificDays'?medWiz.days.slice():[],
+    active:true,createdAt:firebase.firestore.Timestamp.now()};
+  var ref=medWiz.id
+    ?db.collection('families').doc(fid).collection('medicines').doc(medWiz.id)
+    :db.collection('families').doc(fid).collection('medicines').doc();
+  ref.set(data).then(function(){closeMedModal();});
+}
+
+function renderMedicineHistory(){
+  var h='<div class="page-title">💊 Medicine History</div>';
+  if(!allMedicineGiven.length){
+    h+='<div style="text-align:center;padding:40px;color:var(--muted)">No medicine given yet</div>';
+    document.getElementById('main').innerHTML=h;return;
+  }
+  var grouped={};
+  allMedicineGiven.forEach(function(g){
+    var ed=g.givenAt.getHours()<6?new Date(g.givenAt-864e5):g.givenAt;
+    var dk=dayLabel(ed);
+    if(!grouped[dk])grouped[dk]=[];
+    grouped[dk].push(g);
+  });
+  h+='<table class="ev-table">';
+  Object.keys(grouped).forEach(function(dk){
+    h+='<tr><td colspan="3" style="padding-top:16px"><div class="day-hdr">'+dk+'</div></td></tr>';
+    grouped[dk].forEach(function(g){
+      var time=pad(g.givenAt.getHours())+':'+pad(g.givenAt.getMinutes());
+      var label=g.medicineName+(g.dose?' · '+g.dose:'');
+      var slotStr=g.scheduledTime?' · sched: '+g.scheduledTime:'';
+      h+='<tr><td class="td-time">'+time+'</td><td><div class="td-event">💊 '+label+'</div><div class="td-props">given'+slotStr+'</div></td></tr>';
+    });
+  });
+  h+='</table>';
+  document.getElementById('main').innerHTML=h;
+}
+
 function renderSettings(){
   var h='<div class="page-title">⚙️ Settings</div>';
   h+='<div class="stats-section"><div class="section-label">Track Actions</div>';

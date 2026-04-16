@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
+import '../services/medicine_service.dart';
+import '../models/medicine.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import 'log_event_sheet.dart';
@@ -15,8 +17,9 @@ const kPumpColor = Color(0xFFF472B6);
 class HomeScreen extends StatefulWidget {
   final FirestoreService service;
   final TrackerSettings settings;
+  final MedicineService? medicineService;
   final void Function(String)? onTabChange;
-  const HomeScreen({super.key, required this.service, required this.settings, this.onTabChange});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -26,6 +29,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
   bool _loading = true;
+  List<Medicine> _medicines = [];
+  List<Map<String, dynamic>> _pendingReminders = [];
+  StreamSubscription<List<Medicine>>? _medicinesSub;
 
   // Only used to refresh "X min ago" labels — no data re-fetching
   Timer? _tickTimer;
@@ -38,8 +44,26 @@ class _HomeScreenState extends State<HomeScreen> {
     _widgetService =
         WidgetService(firestore: widget.service, settings: widget.settings);
     _subscribeStream();
-    _tickTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
+    _subscribeMedicines();
+    // Tick timer is set up in _subscribeMedicines (60s interval)
+  }
+
+  void _subscribeMedicines() {
+    if (widget.medicineService == null) return;
+    _medicinesSub = widget.medicineService!.medicinesStream().listen((medicines) async {
+      if (!mounted) return;
+      _medicines = medicines;
+      final reminders = await widget.medicineService!.getPendingReminders(medicines);
+      if (mounted) setState(() => _pendingReminders = reminders);
+    });
+    // Refresh reminders every minute (time-based)
+    _tickTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      if (!mounted) return;
+      setState(() {}); // refresh time labels
+      if (widget.medicineService != null && _medicines.isNotEmpty) {
+        final reminders = await widget.medicineService!.getPendingReminders(_medicines);
+        if (mounted) setState(() => _pendingReminders = reminders);
+      }
     });
   }
 
@@ -171,6 +195,49 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Colors.grey.shade500,
                               letterSpacing: 0.5)),
                       const SizedBox(height: 10),
+
+                      // Medicine reminders
+                      ..._pendingReminders.map((r) {
+                        final med = r['medicine'] as Medicine;
+                        final slot = r['scheduledTime'] as String;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.purple.withOpacity(0.1),
+                              border: Border.all(color: Colors.purple, width: 2),
+                            ),
+                            child: Row(children: [
+                              const Text('💊', style: TextStyle(fontSize: 22)),
+                              const SizedBox(width: 10),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Give ${med.displayName}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.purple)),
+                                Text('Scheduled: $slot',
+                                    style: TextStyle(fontSize: 12, color: Colors.purple.withOpacity(0.7))),
+                              ])),
+                              TextButton(
+                                onPressed: () async {
+                                  await widget.medicineService!.markGiven(
+                                      medicine: med, scheduledTime: slot);
+                                  final reminders = await widget.medicineService!
+                                      .getPendingReminders(_medicines);
+                                  if (mounted) setState(() => _pendingReminders = reminders);
+                                },
+                                style: TextButton.styleFrom(
+                                  backgroundColor: Colors.purple.withOpacity(0.15),
+                                  foregroundColor: Colors.purple,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            ]),
+                          ),
+                        );
+                      }),
 
                       if (ongoing != null) ...[
                         _OngoingBanner(
@@ -331,6 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _streamSub?.cancel();
+    _medicinesSub?.cancel();
     _tickTimer?.cancel();
     super.dispose();
   }

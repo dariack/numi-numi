@@ -10,7 +10,10 @@ import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/insights_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/medicine_screen.dart';
 import 'services/firestore_service.dart';
+import 'services/medicine_service.dart';
+import 'models/medicine.dart';
 import 'services/settings_service.dart';
 import 'models/event.dart';
 
@@ -147,6 +150,7 @@ class _MainAppState extends State<MainApp> {
   int _tab = 0;
   late final FirestoreService _service;
   late final SettingsService _settingsService;
+  late final MedicineService _medicineService;
   TrackerSettings _settings = const TrackerSettings();
   bool _migrating = false;
   StreamSubscription? _settingsSub;
@@ -156,6 +160,7 @@ class _MainAppState extends State<MainApp> {
     super.initState();
     _service = FirestoreService(familyId: widget.familyId);
     _settingsService = SettingsService(familyId: widget.familyId);
+    _medicineService = MedicineService(familyId: widget.familyId);
     _checkMigration();
     _handleWidgetLaunch();
     _listenSettings();
@@ -217,6 +222,7 @@ class _MainAppState extends State<MainApp> {
         builder: () => HomeScreen(
           service: _service,
           settings: _settings,
+          medicineService: _medicineService,
           onTabChange: (tabId) {
             final tabs = _buildTabs();
             final idx = tabs.indexWhere((t) => t.id == tabId);
@@ -227,7 +233,7 @@ class _MainAppState extends State<MainApp> {
       _NavTab(
         id: 'history', icon: Icons.history_outlined, selectedIcon: Icons.history,
         label: 'History',
-        builder: () => HistoryScreen(service: _service),
+        builder: () => HistoryScreen(service: _service, medicineService: _medicineService),
       ),
     ];
 
@@ -260,6 +266,12 @@ class _MainAppState extends State<MainApp> {
         builder: () => ActionTabScreen(service: _service, type: EventType.pump),
       ));
     }
+
+    tabs.add(_NavTab(
+      id: 'medicine', icon: Icons.medication_outlined, selectedIcon: Icons.medication,
+      label: 'Medicine',
+      builder: () => MedicineScreen(service: _medicineService),
+    ));
 
     tabs.add(_NavTab(
       id: 'settings', icon: Icons.settings_outlined, selectedIcon: Icons.settings,
