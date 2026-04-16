@@ -98,90 +98,104 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
           )),
-          Expanded(child: _filter == 'medicine'
-            ? _MedicineHistory(service: widget.medicineService)
-            : StreamBuilder<List<BabyEvent>>(
+          Expanded(child: StreamBuilder<List<BabyEvent>>(
             stream: widget.service.eventsStream(limit: 500),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text('Error loading history'));
-              }
-              var events = snapshot.data ?? [];
+            builder: (context, evSnapshot) {
+              return StreamBuilder<List<MedicineGiven>>(
+                stream: widget.medicineService?.givenStream(limitDays: 60) ??
+                    const Stream.empty(),
+                builder: (context, medSnapshot) {
+                  if (evSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-              // Apply type filter locally (avoids needing composite indexes)
-              if (_filter != 'all') {
-                events = events.where((e) => e.type.name == _filter).toList();
-              }
+                  var events = evSnapshot.data ?? [];
+                  final medEvents = medSnapshot.data ?? [];
 
-              // Apply time filter
-              events = _applyTimeFilter(events);
+                  // Apply type filter
+                  if (_filter == 'medicine') {
+                    // Show only medicine events
+                    return _MedicineHistory(
+                      items: medEvents,
+                      service: widget.medicineService,
+                    );
+                  }
+                  if (_filter != 'all') {
+                    events = events.where((e) => e.type.name == _filter).toList();
+                  }
 
-              if (events.isEmpty) {
-                return const Center(child: Text('No events'));
-              }
+                  // Apply time filter
+                  events = _applyTimeFilter(events);
 
-              // Group by day, then by period
-              final grouped = <String, Map<String, List<BabyEvent>>>{};
-              for (final e in events) {
-                final dayKey = _dayLabel(e.startTime);
-                final period = _getDayPeriod(e.startTime);
-                grouped.putIfAbsent(dayKey, () => {});
-                grouped[dayKey]!.putIfAbsent(period, () => []);
-                grouped[dayKey]![period]!.add(e);
-              }
+                  // For "all" filter, inject medicine events into the list
+                  // We'll render them inline using a unified approach below
+                  final medForAll = _filter == 'all'
+                      ? _applyMedTimeFilter(medEvents)
+                      : <MedicineGiven>[];
 
-              final hasDur = _filter == 'sleep' || _filter == 'feed';
-              String _fmtDurMin(int min) {
-                if (min <= 0) return '';
-                if (min < 60) return '${min}m';
-                final h = min ~/ 60;
-                final m = min % 60;
-                return m > 0 ? '${h}h ${m}m' : '${h}h';
-              }
-              int _sumDur(List<BabyEvent> evs) => evs.fold(0, (s, e) => s + (e.durationMinutes ?? 0));
+                  // Build unified list: BabyEvents + MedicineGiven sorted by time
+                  // Each item is a Map with 'type' ('event' or 'medicine') and data
+                  final List<Map<String, dynamic>> unified = [
+                    ...events.map((e) => {'type': 'event', 'time': e.startTime, 'data': e}),
+                    ...medForAll.map((g) => {'type': 'medicine', 'time': g.givenAt, 'data': g}),
+                  ];
+                  unified.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
 
-              return ListView.builder(
-                padding: const EdgeInsets.only(bottom: 20),
-                itemCount: grouped.length,
-                itemBuilder: (context, i) {
-                  final dayKey = grouped.keys.elementAt(i);
-                  final periods = grouped[dayKey]!;
-                  final dayCount = periods.values.fold<int>(0, (s, l) => s + l.length);
-                  final dayDur = hasDur ? _sumDur(periods.values.expand((l) => l).toList()) : 0;
-                  final dayExtra = hasDur && dayDur > 0 ? ' · ${_fmtDurMin(dayDur)}' : '';
-                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    // Day header
-                    Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
-                      child: Text(_filter != 'all' ? '$dayKey ($dayCount$dayExtra)' : dayKey, style: theme.textTheme.titleSmall?.copyWith(
-                        color: theme.colorScheme.primary, fontWeight: FontWeight.bold))),
-                    // Periods
-                    for (final period in (periods.keys.toList()..sort((a, b) {
-                        final aTime = periods[a]!.first.startTime;
-                        final bTime = periods[b]!.first.startTime;
-                        return bTime.compareTo(aTime);
-                      })))
-                      ...[
-                        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                          child: Builder(builder: (_) {
-                            final pEvs = periods[period]!;
-                            final pDur = hasDur ? _sumDur(pEvs) : 0;
-                            final pExtra = hasDur && pDur > 0 ? ' · ${_fmtDurMin(pDur)}' : '';
-                            return Text(_filter != 'all'
-                              ? '${_periodDisplay(period, pEvs)} (${pEvs.length}$pExtra)'
-                              : _periodDisplay(period, pEvs),
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade500));
-                          })),
-                        ...periods[period]!.map((event) => _EventTile(
-                          event: event,
-                          onDelete: () => _confirmDelete(event),
-                          onEdit: () => _editEvent(event),
-                        )),
-                      ],
-                  ]);
+                  if (unified.isEmpty) {
+                    return const Center(child: Text('No events'));
+                  }
+
+                  // Group by day
+                  final grouped = <String, List<Map<String, dynamic>>>{};
+                  for (final item in unified) {
+                    final dayKey = _dayLabel(item['time'] as DateTime);
+                    grouped.putIfAbsent(dayKey, () => []).add(item);
+                  }
+
+                  final hasDur = _filter == 'sleep' || _filter == 'feed';
+                  String fmtDurMin(int min) {
+                    if (min <= 0) return '';
+                    if (min < 60) return '${min}m';
+                    final h = min ~/ 60; final m = min % 60;
+                    return m > 0 ? '${h}h ${m}m' : '${h}h';
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    itemCount: grouped.length,
+                    itemBuilder: (context, i) {
+                      final dayKey = grouped.keys.elementAt(i);
+                      final items = grouped[dayKey]!;
+                      final evItems = items.where((x) => x['type'] == 'event').toList();
+                      final dayCount = items.length;
+                      final dayDur = hasDur
+                          ? evItems.fold<int>(0, (s, x) => s + ((x['data'] as BabyEvent).durationMinutes ?? 0))
+                          : 0;
+                      final dayExtra = hasDur && dayDur > 0 ? ' · ${fmtDurMin(dayDur)}' : '';
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
+                          child: Text(_filter != 'all' ? '$dayKey ($dayCount$dayExtra)' : dayKey,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: theme.colorScheme.primary, fontWeight: FontWeight.bold))),
+                        ...items.map((item) {
+                          if (item['type'] == 'medicine') {
+                            final g = item['data'] as MedicineGiven;
+                            return _MedicineTile(
+                              given: g,
+                              onDelete: () => _confirmDeleteMedicine(g),
+                            );
+                          } else {
+                            final event = item['data'] as BabyEvent;
+                            return _EventTile(
+                              event: event,
+                              onDelete: () => _confirmDelete(event),
+                              onEdit: () => _editEvent(event),
+                            );
+                          }
+                        }),
+                      ]);
+                    },
+                  );
                 },
               );
             },
@@ -205,6 +219,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (d == today) return 'Today';
     if (d == yesterday) return 'Yesterday';
     return DateFormat('EEEE, MMM d').format(effective);
+  }
+
+  List<MedicineGiven> _applyMedTimeFilter(List<MedicineGiven> items) {
+    if (_timeFilter == 'all') return items;
+    final now = DateTime.now();
+    final today6 = DateTime(now.year, now.month, now.day, 6);
+    if (_timeFilter == 'today') return items.where((g) => !g.givenAt.isBefore(today6)).toList();
+    if (_timeFilter == 'yesterday') {
+      final y6 = today6.subtract(const Duration(days: 1));
+      return items.where((g) => !g.givenAt.isBefore(y6) && g.givenAt.isBefore(today6)).toList();
+    }
+    if (_timeFilter == '2daysago') {
+      final d2 = today6.subtract(const Duration(days: 2));
+      final d1 = today6.subtract(const Duration(days: 1));
+      return items.where((g) => !g.givenAt.isBefore(d2) && g.givenAt.isBefore(d1)).toList();
+    }
+    if (_timeFilter == '3daysago') {
+      final d3 = today6.subtract(const Duration(days: 3));
+      final d2 = today6.subtract(const Duration(days: 2));
+      return items.where((g) => !g.givenAt.isBefore(d3) && g.givenAt.isBefore(d2)).toList();
+    }
+    return items;
+  }
+
+  void _confirmDeleteMedicine(MedicineGiven g) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Delete medicine record?'),
+      content: Text('Delete ${g.medicineName} at ${DateFormat('HH:mm').format(g.givenAt)}?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(onPressed: () async {
+          Navigator.pop(ctx);
+          await widget.medicineService?.deleteGiven(g.id);
+        }, child: const Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
+    ));
   }
 
   void _confirmDelete(BabyEvent event) {
@@ -235,56 +285,78 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
 // ── Medicine History Widget ──────────────────────────────────────────
 class _MedicineHistory extends StatelessWidget {
+  final List<MedicineGiven> items;
   final MedicineService? service;
-  const _MedicineHistory({required this.service});
+  const _MedicineHistory({required this.items, required this.service});
 
   @override
   Widget build(BuildContext context) {
-    if (service == null) {
-      return const Center(child: Text('Medicine tracking not available'));
+    if (items.isEmpty) {
+      return const Center(child: Text('No medicine given yet'));
     }
-    return StreamBuilder<List<MedicineGiven>>(
-      stream: service!.givenStream(limitDays: 30),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final items = snap.data ?? [];
-        if (items.isEmpty) {
-          return const Center(child: Text('No medicine given yet'));
-        }
-        final grouped = <String, List<MedicineGiven>>{};
-        for (final g in items) {
-          final key = DateFormat('EEE, MMM d').format(g.givenAt);
-          grouped.putIfAbsent(key, () => []).add(g);
-        }
-        return ListView(padding: const EdgeInsets.all(16), children: [
-          ...grouped.entries.expand((entry) => [
-            Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 8),
-              child: Text(entry.key, style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
-            ),
-            ...entry.value.map((g) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(children: [
-                SizedBox(width: 48, child: Text(DateFormat('HH:mm').format(g.givenAt),
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
-                const SizedBox(width: 12),
-                const Text('💊', style: TextStyle(fontSize: 18)),
-                const SizedBox(width: 8),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(g.medicineName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  if (g.dose != null)
-                    Text(g.dose!, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                  if (g.scheduledTime != null)
-                    Text('Scheduled: ${g.scheduledTime}', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                ])),
-              ]),
-            )),
-          ]),
-        ]);
-      },
+    final grouped = <String, List<MedicineGiven>>{};
+    for (final g in items) {
+      final key = DateFormat('EEE, MMM d').format(g.givenAt);
+      grouped.putIfAbsent(key, () => []).add(g);
+    }
+    return ListView(padding: const EdgeInsets.only(bottom: 20), children: [
+      ...grouped.entries.expand((entry) => [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
+          child: Text(entry.key, style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+        ),
+        ...entry.value.map((g) => _MedicineTile(
+          given: g,
+          onDelete: service != null ? () => _confirmDelete(context, g, service!) : null,
+        )),
+      ]),
+    ]);
+  }
+
+  void _confirmDelete(BuildContext context, MedicineGiven g, MedicineService svc) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Delete medicine record?'),
+      content: Text('Delete ${g.medicineName} at ${DateFormat('HH:mm').format(g.givenAt)}?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(onPressed: () async {
+          Navigator.pop(ctx);
+          await svc.deleteGiven(g.id);
+        }, child: const Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
+    ));
+  }
+}
+
+// ── Medicine Tile ─────────────────────────────────────────────────────
+class _MedicineTile extends StatelessWidget {
+  final MedicineGiven given;
+  final VoidCallback? onDelete;
+  const _MedicineTile({required this.given, this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: SizedBox(width: 48, child: Text(DateFormat('HH:mm').format(given.givenAt),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade400))),
+      title: Row(children: [
+        const Text('💊 ', style: TextStyle(fontSize: 16)),
+        Text(given.medicineName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+      ]),
+      subtitle: given.dose != null || given.scheduledTime != null
+          ? Text([
+              if (given.dose != null) given.dose!,
+              if (given.scheduledTime != null) 'sched: ${given.scheduledTime}',
+            ].join(' · '), style: TextStyle(fontSize: 12, color: Colors.grey.shade500))
+          : null,
+      trailing: onDelete != null
+          ? IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              color: Colors.red.withOpacity(0.6),
+              onPressed: onDelete,
+            )
+          : null,
     );
   }
 }

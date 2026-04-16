@@ -39,6 +39,10 @@ class MedicineService {
 
   // ===== GIVEN LOG =====
 
+  Future<void> deleteGiven(String id) async {
+    await _given.doc(id).delete();
+  }
+
   Future<void> markGiven({
     required Medicine medicine,
     String? scheduledTime,
