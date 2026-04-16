@@ -532,21 +532,37 @@ function renderFeedTab(){
   var breastFeeds5d=feeds5d.filter(function(f){return f.source!=='pump'&&f.duration&&f.duration>0});
   var avgDur=breastFeeds5d.length?breastFeeds5d.reduce(function(s,f){return s+f.duration},0)/breastFeeds5d.length:0;
   // Gap: sort ALL 5d feeds, compute gaps between consecutive pairs,
-  // keep only gaps where the earlier feed is within the target window.
-  // Avoids cross-day artifacts from filtering feeds to same window then computing gaps.
-  function avgGapInWindow(allSorted, inWindow){
+  // Group feeds into sessions (gap <= 30min = same session).
+  // Inter-session gap = end of session to start of next.
+  function buildSessions(sorted){
+    if(!sorted.length)return [];
+    var sessions=[];
+    var sStart=sorted[0].startTime,sEnd=sorted[0].endTime||sorted[0].startTime;
+    for(var i=1;i<sorted.length;i++){
+      var f=sorted[i],fEnd=f.endTime||f.startTime;
+      var gap=Math.round((f.startTime-sEnd)/60000);
+      if(gap<=30){if(fEnd>sEnd)sEnd=fEnd;}
+      else{sessions.push({start:sStart,end:sEnd});sStart=f.startTime;sEnd=fEnd;}
+    }
+    sessions.push({start:sStart,end:sEnd});
+    return sessions;
+  }
+  function avgSessionGapInWindow(sessions, inWindow){
+    if(sessions.length<2)return 0;
     var gaps=[];
-    for(var i=1;i<allSorted.length;i++){
-      var prev=allSorted[i-1],curr=allSorted[i];
-      if(!inWindow(prev.startTime.getHours()))continue;
-      var g=Math.round((curr.startTime-prev.startTime)/60000);
-      if(g>0&&g<240)gaps.push(g); // only gaps < 4h (within same wake window)
+    for(var i=1;i<sessions.length;i++){
+      var prevEnd=sessions[i-1].end,currStart=sessions[i].start;
+      var h=sessions[i-1].start.getHours();
+      if(!inWindow(h))continue;
+      var g=Math.round((currStart-prevEnd)/60000);
+      if(g>=5&&g<720)gaps.push(g);
     }
     return gaps.length?gaps.reduce(function(s,v){return s+v},0)/gaps.length:0;
   }
   var allSorted5d=feeds5d.slice().sort(function(a,b){return a.startTime-b.startTime});
-  var gapDay=avgGapInWindow(allSorted5d,function(h){return h>=10&&h<22;});
-  var gapNight=avgGapInWindow(allSorted5d,function(h){return h>=22||h<10;});
+  var sessions5d=buildSessions(allSorted5d);
+  var gapDay=avgSessionGapInWindow(sessions5d,function(h){return h>=10&&h<22;});
+  var gapNight=avgSessionGapInWindow(sessions5d,function(h){return h>=22||h<10;});
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">';
   h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d · breast</div></div></div>';
   h+='<div class="stat" style="background:var(--card)"><div class="em">☀️</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapDay>0?fmtMin(Math.round(gapDay)):'--')+'</div><div class="l">Avg gap day</div><div class="l2">10am–10pm · 5d</div></div></div>';

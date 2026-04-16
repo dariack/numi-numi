@@ -420,26 +420,52 @@ class FirestoreService {
     final breastFeeds5d = feeds5d.where((f) => f.source != 'pump' && f.durationMinutes != null && f.durationMinutes! > 0).toList();
     final avgDuration = breastFeeds5d.isEmpty ? 0.0 : breastFeeds5d.fold<int>(0, (s, f) => s + f.durationMinutes!) / breastFeeds5d.length;
 
-    // Avg gap: sort ALL 5d feeds chronologically, compute gaps between consecutive feeds,
-    // then only keep gaps where the *earlier* feed falls within the target time window.
-    // This avoids cross-day gaps from feeds filtered to the same window but days apart.
-    double _avgGapInWindow(List<BabyEvent> allSorted, bool Function(int hour) inWindow) {
+    // Group individual feeds into "feeding sessions":
+    // consecutive feeds within 45 min of each other = one session.
+    // Gap = time from end of one session to start of the next.
+    // Only count gaps where the session START falls in the target window.
+    List<Map<String, DateTime>> _buildSessions(List<BabyEvent> sorted) {
+      if (sorted.isEmpty) return [];
+      final sessions = <Map<String, DateTime>>[];
+      DateTime sessionStart = sorted.first.startTime;
+      DateTime sessionEnd = sorted.first.endTime ?? sorted.first.startTime;
+      for (int i = 1; i < sorted.length; i++) {
+        final f = sorted[i];
+        final gapToNext = f.startTime.difference(sessionEnd).inMinutes;
+        if (gapToNext <= 30) {
+          // Same session — extend end time
+          final fEnd = f.endTime ?? f.startTime;
+          if (fEnd.isAfter(sessionEnd)) sessionEnd = fEnd;
+        } else {
+          sessions.add({'start': sessionStart, 'end': sessionEnd});
+          sessionStart = f.startTime;
+          sessionEnd = f.endTime ?? f.startTime;
+        }
+      }
+      sessions.add({'start': sessionStart, 'end': sessionEnd});
+      return sessions;
+    }
+
+    double _avgSessionGapInWindow(List<Map<String, DateTime>> sessions, bool Function(int hour) inWindow) {
+      if (sessions.length < 2) return 0;
       final gaps = <int>[];
-      for (int i = 1; i < allSorted.length; i++) {
-        final prev = allSorted[i - 1];
-        final curr = allSorted[i];
-        if (!inWindow(prev.startTime.hour)) continue;
-        final gap = curr.startTime.difference(prev.startTime).inMinutes;
-        // Only count gaps that are plausible within a single wake/sleep window (< 4h)
-        if (gap > 0 && gap < 240) gaps.add(gap);
+      for (int i = 1; i < sessions.length; i++) {
+        final prevEnd = sessions[i - 1]['end']!;
+        final currStart = sessions[i]['start']!;
+        final sessionStartHour = sessions[i - 1]['start']!.hour;
+        if (!inWindow(sessionStartHour)) continue;
+        final gap = currStart.difference(prevEnd).inMinutes;
+        // Only meaningful inter-session gaps (5 min to 12h)
+        if (gap >= 5 && gap < 720) gaps.add(gap);
       }
       if (gaps.isEmpty) return 0;
       return gaps.fold<int>(0, (s, v) => s + v) / gaps.length;
     }
 
     final allSorted5d = [...feeds5d]..sort((a, b) => a.startTime.compareTo(b.startTime));
-    final avgGapDay = _avgGapInWindow(allSorted5d, (h) => h >= 10 && h < 22);
-    final avgGapNight = _avgGapInWindow(allSorted5d, (h) => h >= 22 || h < 10);
+    final sessions5d = _buildSessions(allSorted5d);
+    final avgGapDay = _avgSessionGapInWindow(sessions5d, (h) => h >= 10 && h < 22);
+    final avgGapNight = _avgSessionGapInWindow(sessions5d, (h) => h >= 22 || h < 10);
 
     return {
       'timeSinceLast': timeSinceLast,
