@@ -531,16 +531,22 @@ function renderFeedTab(){
   // Avg duration, day gap, night gap (5-day)
   var breastFeeds5d=feeds5d.filter(function(f){return f.source!=='pump'&&f.duration&&f.duration>0});
   var avgDur=breastFeeds5d.length?breastFeeds5d.reduce(function(s,f){return s+f.duration},0)/breastFeeds5d.length:0;
-  function avgGap(subset){
-    if(subset.length<2)return 0;
-    var sorted=subset.slice().sort(function(a,b){return a.startTime-b.startTime});
+  // Gap: sort ALL 5d feeds, compute gaps between consecutive pairs,
+  // keep only gaps where the earlier feed is within the target window.
+  // Avoids cross-day artifacts from filtering feeds to same window then computing gaps.
+  function avgGapInWindow(allSorted, inWindow){
     var gaps=[];
-    for(var i=1;i<sorted.length;i++){var g=Math.round((sorted[i].startTime-sorted[i-1].startTime)/60000);if(g>0&&g<300)gaps.push(g);}
+    for(var i=1;i<allSorted.length;i++){
+      var prev=allSorted[i-1],curr=allSorted[i];
+      if(!inWindow(prev.startTime.getHours()))continue;
+      var g=Math.round((curr.startTime-prev.startTime)/60000);
+      if(g>0&&g<240)gaps.push(g); // only gaps < 4h (within same wake window)
+    }
     return gaps.length?gaps.reduce(function(s,v){return s+v},0)/gaps.length:0;
   }
-  var dayFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=10&&h2<22;});
-  var nightFeeds5d=feeds5d.filter(function(f){var h2=f.startTime.getHours();return h2>=0&&h2<6;});
-  var gapDay=avgGap(dayFeeds5d),gapNight=avgGap(nightFeeds5d);
+  var allSorted5d=feeds5d.slice().sort(function(a,b){return a.startTime-b.startTime});
+  var gapDay=avgGapInWindow(allSorted5d,function(h){return h>=10&&h<22;});
+  var gapNight=avgGapInWindow(allSorted5d,function(h){return h>=0&&h<6;});
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">';
   h+='<div class="stat" style="background:var(--card)"><div class="em">⏱</div><div class="info"><div class="t" style="color:var(--feed)">'+(avgDur>0?fmtMin(Math.round(avgDur)):'--')+'</div><div class="l">Avg duration</div><div class="l2">5d · breast</div></div></div>';
   h+='<div class="stat" style="background:var(--card)"><div class="em">☀️</div><div class="info"><div class="t" style="color:var(--feed)">'+(gapDay>0?fmtMin(Math.round(gapDay)):'--')+'</div><div class="l">Avg gap day</div><div class="l2">10am–10pm · 5d</div></div></div>';
