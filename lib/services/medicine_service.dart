@@ -55,16 +55,20 @@ class MedicineService {
     ).toFirestore());
   }
 
-  Stream<List<MedicineGiven>> givenStream({int limitDays = 7}) {
-    final since = DateTime.now().subtract(Duration(days: limitDays));
+  Stream<List<MedicineGiven>> givenStream({int limitDays = 30}) {
+    // No composite index needed — fetch all and sort client-side
     return _given
-        .where('givenAt', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
-        .orderBy('givenAt', descending: true)
         .snapshots()
-        .map((s) => s.docs
-            .map((d) { try { return MedicineGiven.fromFirestore(d); } catch (_) { return null; } })
-            .whereType<MedicineGiven>()
-            .toList());
+        .map((s) {
+          final since = DateTime.now().subtract(Duration(days: limitDays));
+          final items = s.docs
+              .map((d) { try { return MedicineGiven.fromFirestore(d); } catch (_) { return null; } })
+              .whereType<MedicineGiven>()
+              .where((g) => g.givenAt.isAfter(since))
+              .toList();
+          items.sort((a, b) => b.givenAt.compareTo(a.givenAt));
+          return items;
+        });
   }
 
   // ===== REMINDERS =====
@@ -77,11 +81,9 @@ class MedicineService {
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
-    // Fetch today's given records
+    // Fetch today's given records — no compound index, filter client-side
     final todayStart = DateTime(now.year, now.month, now.day);
-    final snap = await _given
-        .where('givenAt', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-        .get();
+    final snap = await _given.get();
     final givenToday = snap.docs
         .map((d) { try { return MedicineGiven.fromFirestore(d); } catch (_) { return null; } })
         .whereType<MedicineGiven>()

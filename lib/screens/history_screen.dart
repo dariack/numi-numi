@@ -80,19 +80,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   const SizedBox(width: 6),
                   _Chip(label: '💊 Medicine', selected: _filter == 'medicine', onTap: () => setState(() => _filter = 'medicine')),
                 ])),
-                const SizedBox(height: 6),
-                // Time filters
-                SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-                  _Chip(label: 'All time', selected: _timeFilter == 'all', onTap: () => setState(() => _timeFilter = 'all')),
-                  const SizedBox(width: 6),
-                  _Chip(label: 'Today', selected: _timeFilter == 'today', onTap: () => setState(() => _timeFilter = 'today')),
-                  const SizedBox(width: 6),
-                  _Chip(label: 'Yesterday', selected: _timeFilter == 'yesterday', onTap: () => setState(() => _timeFilter = 'yesterday')),
-                  const SizedBox(width: 6),
-                  _Chip(label: '2 days ago', selected: _timeFilter == '2daysago', onTap: () => setState(() => _timeFilter = '2daysago')),
-                  const SizedBox(width: 6),
-                  _Chip(label: '3 days ago', selected: _timeFilter == '3daysago', onTap: () => setState(() => _timeFilter = '3daysago')),
-                ])),
+                if (_filter != 'medicine') ...[
+                  const SizedBox(height: 6),
+                  // Time filters
+                  SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+                    _Chip(label: 'All time', selected: _timeFilter == 'all', onTap: () => setState(() => _timeFilter = 'all')),
+                    const SizedBox(width: 6),
+                    _Chip(label: 'Today', selected: _timeFilter == 'today', onTap: () => setState(() => _timeFilter = 'today')),
+                    const SizedBox(width: 6),
+                    _Chip(label: 'Yesterday', selected: _timeFilter == 'yesterday', onTap: () => setState(() => _timeFilter = 'yesterday')),
+                    const SizedBox(width: 6),
+                    _Chip(label: '2 days ago', selected: _timeFilter == '2daysago', onTap: () => setState(() => _timeFilter = '2daysago')),
+                    const SizedBox(width: 6),
+                    _Chip(label: '3 days ago', selected: _timeFilter == '3daysago', onTap: () => setState(() => _timeFilter = '3daysago')),
+                  ])),
+                ],
               ],
             ),
           )),
@@ -105,7 +107,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return Center(child: Text('Error: \${snapshot.error}'));
+                return Center(child: Text('Error loading history'));
               }
               var events = snapshot.data ?? [];
 
