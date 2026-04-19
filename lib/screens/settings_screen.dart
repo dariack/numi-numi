@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/settings_service.dart';
+import '../services/widget_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final SettingsService settingsService;
@@ -20,6 +21,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   TrackerSettings _settings = const TrackerSettings();
   bool _loading = true;
+  List<String> _widgetSlots = ['feed', 'diaper'];
 
   @override
   void initState() {
@@ -29,7 +31,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _load() async {
     final s = await widget.settingsService.get();
-    if (mounted) setState(() { _settings = s; _loading = false; });
+    final slots = await WidgetService.getWidgetSlots();
+    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _loading = false; });
+  }
+
+  Future<void> _toggleWidgetSlot(String type) async {
+    List<String> newSlots = List.from(_widgetSlots);
+    if (newSlots.contains(type)) {
+      if (newSlots.length <= 1) return; // must keep at least 1
+      newSlots.remove(type);
+    } else {
+      if (newSlots.length >= 2) newSlots.removeAt(0); // drop oldest
+      newSlots.add(type);
+    }
+    await WidgetService.setWidgetSlots(newSlots[0], newSlots.length > 1 ? newSlots[1] : newSlots[0]);
+    if (mounted) setState(() => _widgetSlots = newSlots);
   }
 
   Future<void> _toggle(String key) async {
@@ -104,6 +120,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _SettingsToggle(item: item),
               )),
+          const SizedBox(height: 24),
+          Text('Widget',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          Text('Choose 2 actions to show on your home screen widget:',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final opt in [
+              {'type': 'feed',   'label': '🍼 Feed'},
+              {'type': 'sleep',  'label': '😴 Sleep'},
+              {'type': 'diaper', 'label': '🧷 Diaper'},
+              {'type': 'pump',   'label': '🥛 Pump'},
+            ])
+              GestureDetector(
+                onTap: () => _toggleWidgetSlot(opt['type']!),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _widgetSlots.contains(opt['type'])
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey.withOpacity(0.3),
+                      width: _widgetSlots.contains(opt['type']) ? 2 : 1,
+                    ),
+                    color: _widgetSlots.contains(opt['type'])
+                        ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                        : null,
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(opt['label']!, style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _widgetSlots.contains(opt['type'])
+                          ? FontWeight.bold : FontWeight.normal,
+                      color: _widgetSlots.contains(opt['type'])
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey.shade400,
+                    )),
+                    if (_widgetSlots.contains(opt['type'])) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '${_widgetSlots.indexOf(opt['type']!) + 1}',
+                        style: TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ]),
+                ),
+              ),
+          ]),
           const SizedBox(height: 24),
           Text('Family',
               style: TextStyle(

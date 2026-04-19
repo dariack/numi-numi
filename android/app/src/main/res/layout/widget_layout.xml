@@ -3,65 +3,106 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="8dp"
-    android:background="#FF1A1D27">
+    android:orientation="horizontal"
+    android:padding="6dp"
+    android:background="#CC1A1D27">
 
-    <TextView
-        android:id="@+id/feed_line1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#FFE4E4E7"
-        android:textSize="11sp"
-        android:layout_marginBottom="2dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:visibility="gone" />
+    <!-- Slot 1 -->
+    <LinearLayout
+        android:id="@+id/slot1_container"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="8dp"
+        android:background="#331E2130"
+        android:layout_marginEnd="4dp">
 
-    <TextView
-        android:id="@+id/sleep_line1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#FFE4E4E7"
-        android:textSize="11sp"
-        android:layout_marginBottom="2dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:visibility="gone" />
+        <TextView
+            android:id="@+id/slot1_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Feed"
+            android:textColor="#FFE4E4E7"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
 
-    <TextView
-        android:id="@+id/diaper_line1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#FFE4E4E7"
-        android:textSize="11sp"
-        android:layout_marginBottom="2dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:visibility="gone" />
+        <TextView
+            android:id="@+id/slot1_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--"
+            android:textColor="#FFf59e0b"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginTop="4dp"
+            android:maxLines="1"
+            android:ellipsize="end" />
 
-    <TextView
-        android:id="@+id/pump_line1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#FFE4E4E7"
-        android:textSize="11sp"
-        android:layout_marginBottom="2dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:visibility="gone" />
+        <TextView
+            android:id="@+id/slot1_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#FF71717a"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/widget_updated"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#FF444444"
-        android:textSize="8sp"
-        android:gravity="end" />
+    </LinearLayout>
+
+    <!-- Slot 2 -->
+    <LinearLayout
+        android:id="@+id/slot2_container"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="8dp"
+        android:background="#331E2130"
+        android:layout_marginStart="4dp">
+
+        <TextView
+            android:id="@+id/slot2_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Diaper"
+            android:textColor="#FFE4E4E7"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/slot2_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--"
+            android:textColor="#FF2dd4bf"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginTop="4dp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/slot2_sub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#FF71717a"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
 </LinearLayout>
