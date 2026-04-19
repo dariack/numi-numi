@@ -414,7 +414,7 @@ class _PumpTabState extends State<_PumpTab> {
             Container(
               decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: cardBg,
                 border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
-              child: Column(children: recentUsage.asMap().entries.map((entry) {
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: recentUsage.asMap().entries.map((entry) {
                 final i = entry.key;
                 final u = entry.value;
                 final pumpId = u['pumpId'] as String?;
