@@ -784,45 +784,46 @@ class FirestoreService {
     }
     final avgUsedPerDay = totalUsed5d / 5.0;
 
-    // Recent pump feeds (last 3 days) — enriched with pump event info
-    final recentPumpFeeds = allFeeds.where((f) => f.startTime.isAfter(threeDaysAgo)).toList();
+    // "Recently Pumped" — list of pump events from last 3 days, with usage info
     final pumpById = <String, BabyEvent>{};
     for (final p in allPumps) { pumpById[p.id] = p; }
 
-    final recentUsage = <Map<String, dynamic>>[];
-    for (final f in recentPumpFeeds) {
-      final feedTime = f.startTime;
+    // Build total usedMl across ALL feeds (not just 3-day) per pump id
+    final totalUsedByPump = <String, int>{};
+    for (final f in allFeeds) {
       if (f.linkedPumps != null) {
         try {
           final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
           for (final entry in list) {
             final pid = entry['id'] as String;
             final pml = (entry['ml'] as num).toInt();
-            final pump = pumpById[pid];
-            recentUsage.add({
-              'feedTime': feedTime,
-              'mlUsed': pml,
-              'pumpId': pump?.pumpId,
-              'pumpEventId': pid,
-              'pumpedAt': pump?.startTime,
-              'pumpedMl': pump?.ml,
-            });
+            totalUsedByPump[pid] = (totalUsedByPump[pid] ?? 0) + pml;
           }
         } catch (_) {}
       } else if (f.linkedPumpId != null) {
-        final pump = pumpById[f.linkedPumpId!];
-        recentUsage.add({
-          'feedTime': feedTime,
-          'mlUsed': f.mlFed ?? 0,
-          'pumpId': pump?.pumpId,
-          'pumpEventId': f.linkedPumpId,
-          'pumpedAt': pump?.startTime,
-          'pumpedMl': pump?.ml,
-        });
+        totalUsedByPump[f.linkedPumpId!] = (totalUsedByPump[f.linkedPumpId!] ?? 0) + (f.mlFed ?? 0);
       }
     }
-    // Sort by feed time descending
-    recentUsage.sort((a, b) => (b['feedTime'] as DateTime).compareTo(a['feedTime'] as DateTime));
+
+    // Recent pumps (last 3 days), sorted newest first
+    final recentPumps3d = allPumps.where((p) => p.startTime.isAfter(threeDaysAgo)).toList();
+    recentPumps3d.sort((a, b) => b.startTime.compareTo(a.startTime));
+
+    final recentUsage = recentPumps3d.map((p) {
+      final totalUsed = totalUsedByPump[p.id] ?? 0;
+      final remaining = (p.ml ?? 0) - totalUsed;
+      return {
+        'pumpEventId': p.id,
+        'pumpId': p.pumpId,
+        'pumpedAt': p.startTime,
+        'pumpedMl': p.ml ?? 0,
+        'totalUsed': totalUsed,
+        'remaining': remaining < 0 ? 0 : remaining,
+        'fullyUsed': remaining <= 0,
+        'expiresAt': p.expiresAt,
+        'storage': p.storage,
+      };
+    }).toList();
 
     return {
       'avgPumpedPerDay': avgPumpedPerDay,

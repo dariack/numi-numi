@@ -357,6 +357,8 @@ class _PumpTabState extends State<_PumpTab> {
 
   String _fmtTime(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  static String _fmtTime2(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -398,14 +400,14 @@ class _PumpTabState extends State<_PumpTab> {
           ]),
           const SizedBox(height: 20),
 
-          // Recent pump milk usage (last 3 days)
-          Text('Recently Used (last 3 days)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+          // Recently Pumped (last 3 days)
+          Text('Recently Pumped (last 3 days)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
               color: Colors.grey.shade500, letterSpacing: 0.5)),
           const SizedBox(height: 8),
           if (recentUsage.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text('No pump milk used in the last 3 days',
+              child: Text('No pumps in the last 3 days',
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
             )
           else
@@ -416,13 +418,17 @@ class _PumpTabState extends State<_PumpTab> {
                 final i = entry.key;
                 final u = entry.value;
                 final pumpId = u['pumpId'] as String?;
-                final pumpEventId = u['pumpEventId'] as String?;
-                final mlUsed = u['mlUsed'] as int;
-                final idStr = pumpId != null ? '#$pumpId' : '—';
-                // Look up the pump event for its startTime and ml
-                // These are stored in the usage map from getPumpStats
                 final pumpedAt = u['pumpedAt'] as DateTime?;
-                final pumpedMl = u['pumpedMl'] as int?;
+                final pumpedMl = u['pumpedMl'] as int;
+                final totalUsed = u['totalUsed'] as int;
+                final remaining = u['remaining'] as int;
+                final fullyUsed = u['fullyUsed'] as bool;
+                final expiresAt = u['expiresAt'] as DateTime?;
+                final storage = u['storage'] as String?;
+                final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'}[storage ?? 'room'] ?? '🏠';
+                final idStr = pumpId != null ? '#$pumpId' : '—';
+                final expStr = expiresAt != null ? ' · exp: ${_fmtTime(expiresAt)}' : '';
+
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
@@ -430,20 +436,35 @@ class _PumpTabState extends State<_PumpTab> {
                         ? Border(bottom: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200))
                         : null,
                   ),
-                  child: Row(children: [
-                    Text(idStr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 10),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      if (pumpedAt != null)
-                        Text('pumped: ${_fmtTime(pumpedAt)}',
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                      if (pumpedMl != null)
-                        Text('${pumpedMl}ml total',
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                    ])),
-                    Text('${mlUsed}ml used',
-                        style: TextStyle(fontSize: 13, color: kPumpColor, fontWeight: FontWeight.w600)),
-                  ]),
+                  child: Opacity(
+                    opacity: fullyUsed ? 0.5 : 1.0,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      // Pumped time — main info
+                      Text(pumpedAt != null ? _fmtTime(pumpedAt) : '—',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold,
+                              decoration: fullyUsed ? TextDecoration.lineThrough : null)),
+                      const SizedBox(height: 3),
+                      // Details row
+                      Text(
+                        '$storageEmoji $idStr · ${pumpedMl}ml$expStr',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500,
+                            decoration: fullyUsed ? TextDecoration.lineThrough : null),
+                      ),
+                      const SizedBox(height: 2),
+                      // Usage
+                      Text(
+                        fullyUsed
+                            ? 'Fully used (${totalUsed}ml)'
+                            : '${remaining}ml remaining · ${totalUsed}ml used',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: fullyUsed ? Colors.grey.shade500 : kPumpColor,
+                          fontWeight: FontWeight.w600,
+                          decoration: fullyUsed ? TextDecoration.lineThrough : null,
+                        ),
+                      ),
+                    ]),
+                  ),
                 );
               }).toList()),
             ),
@@ -474,14 +495,16 @@ class _PumpTabState extends State<_PumpTab> {
             final p = i['event'] as BabyEvent;
             final rem = i['remaining'] as int;
             final idStr = p.pumpId != null ? '#${p.pumpId}' : '—';
-            final pumped = '${p.startTime.day.toString().padLeft(2,'0')}/${p.startTime.month.toString().padLeft(2,'0')} ${p.startTime.hour.toString().padLeft(2,'0')}:${p.startTime.minute.toString().padLeft(2,'0')}';
-            final exp = p.expiresAt != null
-                ? ' · expires: ${p.expiresAt!.day.toString().padLeft(2,'0')}/${p.expiresAt!.month.toString().padLeft(2,'0')} ${p.expiresAt!.hour.toString().padLeft(2,'0')}:${p.expiresAt!.minute.toString().padLeft(2,'0')}'
-                : '';
+            final pumped = _fmtTime2(p.startTime);
+            final exp = p.expiresAt != null ? ' · exp: ${_fmtTime2(p.expiresAt!)}' : '';
             return Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text('$idStr · pumped: $pumped · ${rem}ml$exp',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('$idStr · ${rem}ml$exp',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                Text('pumped: $pumped',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              ]),
             );
           }),
       ]),

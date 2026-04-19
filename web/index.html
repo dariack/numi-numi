@@ -292,7 +292,7 @@ function buildHomeStatsHtml(){
         var idStr=u.pumpId||'—';
         var storageEmoji={room:'🏠',fridge:'❄️',freezer:'🧊'};
         var semoji=storageEmoji[u.storage]||'🏠';
-        var expStr=u.expires?' · expires: '+shortDate(u.expires):'';
+        var expStr=u.expires?' · exp: '+shortDate(u.expires):'';
         h+='<div class="l">'+semoji+' #'+idStr+' · '+u.ml+'ml'+expStr+'</div>';
       });
     }
@@ -457,19 +457,21 @@ function renderPump(){
   },0);
   var avgUsed5d=totalUsed5d/5;
 
-  // 1. Stock overview
+  // 1. Stock overview — show emoji, id, ml, expires, pumped at
   h+='<div class="stats-section"><div class="section-label">Stock Overview</div>';
+  var storageEmojis={room:'🏠',fridge:'❄️',freezer:'🧊'};
   var storages=[{k:'room',l:'🏠 Room Temp',c:'4h'},{k:'fridge',l:'❄️ Fridge',c:'4 days'},{k:'freezer',l:'🧊 Freezer',c:'6 months'}];
   storages.forEach(function(s){
-    var items=stock[s.k];var totalMl=items.reduce(function(sum,i){return sum+i.ml},0);
+    var items=stock[s.k];
     h+='<div class="stock-card"><div class="sc-title">'+s.l+' (lasts '+s.c+')</div>';
-    if(!items.length){h+='<div class="sc-row">No milk available</div>'}
+    if(!items.length){h+='<div class="sc-row">No milk available</div>';}
     else{
       items.forEach(function(i){
         var idStr=i.pumpId?'#'+i.pumpId:'—';
-        var pumpedStr=i.startTime?shortDate(i.startTime):'?';
-        var expStr=i.expires?' · expires: '+shortDate(i.expires):'';
-        h+='<div class="sc-row">'+idStr+' · pumped: '+pumpedStr+' · '+i.ml+'ml'+expStr+'</div>';
+        var expStr=i.expires?' · exp: '+shortDate(i.expires):'';
+        var pumpedStr=i.startTime?shortDate(i.startTime):'';
+        h+='<div class="sc-row"><b>'+idStr+'</b> · '+i.ml+'ml'+expStr+'</div>';
+        if(pumpedStr)h+='<div class="sc-row" style="font-size:0.75rem;color:#555">pumped: '+pumpedStr+'</div>';
       });
     }
     h+='</div>';
@@ -483,34 +485,29 @@ function renderPump(){
   h+='<div class="stat" style="background:var(--card)"><div class="em">🍼</div><div class="info"><div class="t" style="color:var(--pump)">'+(avgUsed5d>0?Math.round(avgUsed5d)+'ml':'--')+'</div><div class="l">Avg used/day</div><div class="l2">5-day avg</div></div></div>';
   h+='</div>';
 
-  // 3. Recently used pump milk (last 3 days)
+  // 3. Recently Pumped (last 3 days) — pump-centric, with usage info
   var d3=new Date(now-864e5*3);
-  var pumpById={};pumps.forEach(function(p){pumpById[p.id]=p;});
-  var recentUsage=[];
-  feedsFromPump.filter(function(f){return f.startTime>=d3;}).forEach(function(f){
-    if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(lp){
-      var pump=pumpById[lp.id];
-      recentUsage.push({feedTime:f.startTime,mlUsed:lp.ml,pumpId:pump&&pump.pumpId?pump.pumpId:null,pumpedAt:pump?pump.startTime:null,pumpedMl:pump?pump.ml:null});
-    })}catch(e){}}
-    else if(f.linkedPumpId){
-      var pump2=pumpById[f.linkedPumpId];
-      recentUsage.push({feedTime:f.startTime,mlUsed:f.mlFed||0,pumpId:pump2&&pump2.pumpId?pump2.pumpId:null,pumpedAt:pump2?pump2.startTime:null,pumpedMl:pump2?pump2.ml:null});
-    }
-  });
-  recentUsage.sort(function(a,b){return b.feedTime-a.feedTime;});
+  var recentPumps3d=pumps.filter(function(p){return p.startTime>=d3;});
+  recentPumps3d.sort(function(a,b){return b.startTime-a.startTime;});
 
-  h+='<div class="section-label" style="margin-top:20px">Recently Used (last 3 days)</div>';
-  if(!recentUsage.length){h+='<div style="color:var(--muted);font-size:0.88rem;padding:12px 0">No pump milk used in the last 3 days</div>';}
+  h+='<div class="section-label" style="margin-top:20px">Recently Pumped (last 3 days)</div>';
+  if(!recentPumps3d.length){h+='<div style="color:var(--muted);font-size:0.88rem;padding:12px 0">No pumps in the last 3 days</div>';}
   else{
     h+='<div class="stats-section" style="padding:0">';
-    recentUsage.forEach(function(u,i){
-      var idStr=u.pumpId?'#'+u.pumpId:'—';
-      var timeStr=shortDate(u.feedTime);
-      h+='<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;'+(i<recentUsage.length-1?'border-bottom:1px solid var(--border)':'')+'">'+
-        '<span style="font-size:0.9rem;font-weight:700;min-width:50px">'+idStr+'</span>'+
-        '<span style="flex:1;font-size:0.82rem;color:var(--muted)">'+(u.pumpedAt?'pumped: '+shortDate(u.pumpedAt):'')+(u.pumpedMl?' · '+u.pumpedMl+'ml':'')+'</span>'+
-        '<span style="font-size:0.9rem;font-weight:600;color:var(--pump)">'+u.mlUsed+'ml used</span>'+
-        '</div>';
+    recentPumps3d.forEach(function(p,i){
+      var totalUsed=usedMl[p.id]||0;
+      var remaining=Math.max(0,(p.ml||0)-totalUsed);
+      var fullyUsed=remaining<=0;
+      var idStr=p.pumpId?'#'+p.pumpId:'—';
+      var storEmoji=storageEmojis[p.storage||'room']||'🏠';
+      var expStr=p.expiresAt?' · exp: '+shortDate(p.expiresAt):'';
+      var usageStr=fullyUsed?'Fully used ('+totalUsed+'ml)':remaining+'ml remaining · '+totalUsed+'ml used';
+      var strike=fullyUsed?'text-decoration:line-through;opacity:0.5;':'';
+      h+='<div style="padding:10px 14px;'+(i<recentPumps3d.length-1?'border-bottom:1px solid var(--border)':'')+';'+strike+'">'
+        +'<div style="font-size:1rem;font-weight:700;margin-bottom:2px">'+shortDate(p.startTime)+'</div>'
+        +'<div style="font-size:0.82rem;color:var(--muted)">'+storEmoji+' '+idStr+' · '+(p.ml||0)+'ml'+expStr+'</div>'
+        +'<div style="font-size:0.82rem;font-weight:600;color:'+(fullyUsed?'var(--muted)':'var(--pump)')+'">'+usageStr+'</div>'
+        +'</div>';
     });
     h+='</div>';
   }

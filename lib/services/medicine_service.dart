@@ -85,12 +85,13 @@ class MedicineService {
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
-    // Fetch today's given records — no compound index, filter client-side
+    // Fetch today's given records — filter client-side to today only
     final todayStart = DateTime(now.year, now.month, now.day);
     final snap = await _given.get();
     final givenToday = snap.docs
         .map((d) { try { return MedicineGiven.fromFirestore(d); } catch (_) { return null; } })
         .whereType<MedicineGiven>()
+        .where((g) => g.givenAt.isAfter(todayStart))
         .toList();
 
     final pending = <Map<String, dynamic>>[];
