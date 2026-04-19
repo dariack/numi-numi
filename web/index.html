@@ -502,9 +502,9 @@ function renderPump(){
       var storEmoji=storageEmojis[p.storage||'room']||'🏠';
       var expStr=p.expiresAt?' · exp: '+shortDate(p.expiresAt):'';
       var usageStr=fullyUsed?'Fully used ('+totalUsed+'ml)':remaining+'ml remaining · '+totalUsed+'ml used';
-      var strike=fullyUsed?'text-decoration:line-through;opacity:0.5;':'';
-      h+='<div style="padding:10px 14px;'+(i<recentPumps3d.length-1?'border-bottom:1px solid var(--border)':'')+';'+strike+'">'
-        +'<div style="font-size:1rem;font-weight:700;margin-bottom:2px">'+shortDate(p.startTime)+'</div>'
+      var timeColor=fullyUsed?'var(--muted)':'var(--text)';
+      h+='<div style="padding:10px 14px;'+(i<recentPumps3d.length-1?'border-bottom:1px solid var(--border)':'')+'">'
+        +'<div style="font-size:1rem;font-weight:700;margin-bottom:2px;color:'+timeColor+'">'+shortDate(p.startTime)+'</div>'
         +'<div style="font-size:0.82rem;color:var(--muted)">'+storEmoji+' '+idStr+' · '+(p.ml||0)+'ml'+expStr+'</div>'
         +'<div style="font-size:0.82rem;font-weight:600;color:'+(fullyUsed?'var(--muted)':'var(--pump)')+'">'+usageStr+'</div>'
         +'</div>';

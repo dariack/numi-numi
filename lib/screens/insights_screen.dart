@@ -436,19 +436,16 @@ class _PumpTabState extends State<_PumpTab> {
                         ? Border(bottom: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200))
                         : null,
                   ),
-                  child: Opacity(
-                    opacity: fullyUsed ? 0.5 : 1.0,
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       // Pumped time — main info
                       Text(pumpedAt != null ? _fmtTime(pumpedAt) : '—',
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold,
-                              decoration: fullyUsed ? TextDecoration.lineThrough : null)),
+                              color: fullyUsed ? Colors.grey.shade500 : null)),
                       const SizedBox(height: 3),
                       // Details row
                       Text(
                         '$storageEmoji $idStr · ${pumpedMl}ml$expStr',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500,
-                            decoration: fullyUsed ? TextDecoration.lineThrough : null),
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                       ),
                       const SizedBox(height: 2),
                       // Usage
@@ -460,11 +457,9 @@ class _PumpTabState extends State<_PumpTab> {
                           fontSize: 12,
                           color: fullyUsed ? Colors.grey.shade500 : kPumpColor,
                           fontWeight: FontWeight.w600,
-                          decoration: fullyUsed ? TextDecoration.lineThrough : null,
                         ),
                       ),
                     ]),
-                  ),
                 );
               }).toList()),
             ),
