@@ -922,26 +922,54 @@ function renderSleepAnalysis(){
     h+='<div class="stat" style="background:var(--card)"><div class="em">👶</div><div class="info"><div class="t" style="color:#818cf8">'+wakings+'</div><div class="l">Wakings</div></div></div>';
     h+='</div>';
 
-    // Timeline
+    // Timeline — start 2h before last evening feed (or 8pm fallback), end at 8am
+    var eveningFeedsBefore=allEvents.filter(function(e){
+      return e.startTime<lastNight.start && e.startTime>new Date(lastNight.start.getTime()-6*3600000);
+    });
+    var lastEveningFeed=eveningFeedsBefore.length?eveningFeedsBefore[eveningFeedsBefore.length-1]:null;
+    var tlStartTime=lastEveningFeed
+      ?new Date(lastEveningFeed.startTime.getTime()-2*3600000)
+      :new Date(lastNight.start.getTime()-2*3600000); // 2h before 10pm = 8pm fallback
+    // Clamp to at most 8pm
+    var eightPm=new Date(lastNight.start.getFullYear(),lastNight.start.getMonth(),lastNight.start.getDate(),20,0,0);
+    if(tlStartTime>eightPm)tlStartTime=eightPm;
+    var tlStart=tlStartTime.getTime(),tlEnd=lastNight.end.getTime(),tlRange=tlEnd-tlStart;
+
+    // Build time labels evenly across the range
+    function tlLabel(ms){var d=new Date(ms);return pad(d.getHours())+':'+pad(d.getMinutes());}
+    var tlLabelCount=5;
+    var tlLabels=[];
+    for(var li=0;li<tlLabelCount;li++)tlLabels.push(tlLabel(tlStart+li*(tlRange/(tlLabelCount-1))));
+
+    // Events to show — include evening feed window too
+    var tlEvents=allEvents.filter(function(e){
+      return e.startTime.getTime()>=tlStart && e.startTime.getTime()<=tlEnd;
+    });
+
     h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
-    h+='<div style="font-size:0.8rem;font-weight:600;color:var(--muted);margin-bottom:10px">NIGHT TIMELINE (10pm – 8am)</div>';
-    var tlStart=lastNight.start.getTime(),tlEnd=lastNight.end.getTime(),tlRange=tlEnd-tlStart;
-    h+='<div style="position:relative;height:36px;background:rgba(99,102,241,0.08);border-radius:6px;overflow:hidden">';
-    // Sleep gaps = indigo, awake = transparent
+    h+='<div style="font-size:0.8rem;font-weight:600;color:var(--muted);margin-bottom:10px">NIGHT TIMELINE</div>';
+    // Shaded region = actual night (10pm–8am)
+    var nightShadeLeft=(lastNight.start.getTime()-tlStart)/tlRange*100;
+    var nightShadeWidth=(lastNight.end.getTime()-lastNight.start.getTime())/tlRange*100;
+    h+='<div style="position:relative;height:40px;background:rgba(99,102,241,0.04);border-radius:6px;overflow:hidden">';
+    h+='<div style="position:absolute;top:0;bottom:0;left:'+nightShadeLeft+'%;width:'+nightShadeWidth+'%;background:rgba(99,102,241,0.1)"></div>';
+    // Sleep gaps
     lastNightGaps.forEach(function(g){
       var left=Math.max(0,(g.start.getTime()-tlStart)/tlRange*100);
       var width=(g.minutes*60000)/tlRange*100;
-      h+='<div style="position:absolute;top:0;bottom:0;left:'+left+'%;width:'+Math.min(width,100-left)+'%;background:rgba(99,102,241,0.5);border-radius:3px"></div>';
+      h+='<div style="position:absolute;top:0;bottom:0;left:'+left+'%;width:'+Math.min(width,100-left)+'%;background:rgba(99,102,241,0.55);border-radius:3px"></div>';
     });
     // Event markers
-    lastNightEvents.forEach(function(e){
+    tlEvents.forEach(function(e){
       var left=(e.startTime.getTime()-tlStart)/tlRange*100;
       if(left<0||left>100)return;
       var emoji=e.type==='feed'?'🍼':e.type==='diaper'?'🧷':'🥛';
-      h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:14px;line-height:1">'+emoji+'</div>';
+      h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:15px;line-height:1">'+emoji+'</div>';
     });
     h+='</div>';
-    h+='<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--muted);margin-top:4px"><span>10pm</span><span>1am</span><span>4am</span><span>7am</span></div>';
+    h+='<div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--muted);margin-top:4px">';
+    tlLabels.forEach(function(l){h+='<span>'+l+'</span>';});
+    h+='</div>';
     h+='</div>';
   }
 
@@ -1046,9 +1074,9 @@ function renderSleepAnalysis(){
       data:{
         labels:nightData.map(function(d){return d.label;}),
         datasets:[
-          {label:'Longest stretch',data:nightData.map(function(d){return+(d.longest/60).toFixed(2);}),backgroundColor:'rgba(99,102,241,0.7)',borderRadius:4,order:2},
-          {label:'Total night sleep',data:nightData.map(function(d){return+(d.total/60).toFixed(2);}),backgroundColor:'rgba(99,102,241,0.2)',borderRadius:4,order:3},
-          {label:'Age benchmark',data:nightData.map(function(){return+(benchmarkH/60).toFixed(2);}),type:'line',borderColor:'#f59e0b',borderDash:[4,4],pointRadius:0,fill:false,order:1}
+          {label:'Longest stretch',data:nightData.map(function(d){return+(d.longest/60).toFixed(2);}),backgroundColor:'rgba(99,102,241,0.8)',borderRadius:4,order:2},
+          {label:'Total night sleep',data:nightData.map(function(d){return+(d.total/60).toFixed(2);}),backgroundColor:'rgba(45,212,191,0.5)',borderRadius:4,order:3},
+          {label:'Benchmark (longest)',data:nightData.map(function(){return+(benchmarkH/60).toFixed(2);}),type:'line',borderColor:'rgba(99,102,241,0.9)',borderDash:[5,4],borderWidth:2,pointRadius:0,fill:false,order:1}
         ]
       },
       options:{responsive:true,maintainAspectRatio:false,
