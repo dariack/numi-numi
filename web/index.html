@@ -130,7 +130,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="nav-item" data-tab="pump" onclick="setTab('pump')" style="display:none"><span class="icon">🧴</span> Pump</div>
       <div class="nav-item" data-tab="sleep_analysis" onclick="setTab('sleep_analysis')"><span class="icon">🌙</span> Sleep</div>
       <div class="nav-item" data-tab="medicine" onclick="setTab('medicine')"><span class="icon">💊</span> Medicine</div>
-      <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
+      <div class="nav-item" data-tab="settings" onclick="setTab(&apos;settings&apos;)"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
         <div class="fam-name" id="fam-display"></div>
         <div class="fam-code">Family code</div>
@@ -882,7 +882,7 @@ function renderSleepAnalysis(){
     h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:16px">'
       +'<div style="font-weight:700;color:#a855f7;margin-bottom:4px">📅 Set baby birth date</div>'
       +'<div style="font-size:0.88rem;color:var(--muted);margin-bottom:12px">Add birth date in Settings for age-appropriate tips.</div>'
-      +'<button onclick="setTab(\"settings\")" style="background:#a855f7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer">Go to Settings</button>'
+      +'<button id="go-settings-btn" style="background:#a855f7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer">Go to Settings</button>'
       +'</div>';
   } else {
     h+='<div style="font-size:0.85rem;color:var(--muted);margin-bottom:16px">Yuli is <strong style="color:var(--text)">'+weeks+' weeks old</strong></div>';
@@ -1026,6 +1026,8 @@ function renderSleepAnalysis(){
   h+='</div>';
 
   document.getElementById('main').innerHTML=h;
+  var gsBtn=document.getElementById('go-settings-btn');
+  if(gsBtn)gsBtn.addEventListener('click',function(){setTab('settings');});
 
   // Draw chart after DOM is ready
   if(nightData.some(function(d){return d.longest>0;})){
