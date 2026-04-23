@@ -800,7 +800,7 @@ class _MiniBarChart extends StatelessWidget {
               // v2 (total, teal, behind)
               if (d.v2 > 0) Container(
                 width: barW,
-                height: (d.v2 / maxVal * 60).clamp(2, 60),
+                height: (d.v2 / maxVal * 60).clamp(2.0, 60.0).toDouble(),
                 decoration: BoxDecoration(color: color2, borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
               ),
               // v1 (longest, indigo) — stacked on top but shown separately via overlap
@@ -813,7 +813,7 @@ class _MiniBarChart extends StatelessWidget {
             child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
               if (d.v1 > 0) Container(
                 width: barW,
-                height: (d.v1 / maxVal * 60).clamp(2, 60),
+                height: (d.v1 / maxVal * 60).clamp(2.0, 60.0).toDouble(),
                 decoration: BoxDecoration(color: color1.withOpacity(0.85), borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
               ) else SizedBox(width: barW, height: 0),
             ]),
@@ -860,7 +860,7 @@ class _DayFeedChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final maxVal = data.map((d) => d.count).reduce((a, b) => a > b ? a : b).clamp(1, 999);
     return SizedBox(height: 60, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
-      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3, 40) : 0.0;
+      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3.0, 40.0) : 0.0;
       final isBright = d.count >= 4;
       return Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
         if (d.count > 0) Text('${d.count}', style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
@@ -884,7 +884,7 @@ class _NightFeedChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final maxVal = data.map((d) => d.count).reduce((a, b) => a > b ? a : b).clamp(1, 999);
     return SizedBox(height: 60, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
-      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3, 40) : 0.0;
+      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3.0, 40.0) : 0.0;
       return Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
         if (d.count > 0) Text('${d.count}', style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
         const SizedBox(height: 2),
