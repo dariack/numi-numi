@@ -1109,13 +1109,14 @@ function renderSleepAnalysis(){
   h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+(avgGapVal?fmtHm(avgGapVal):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg gap between feeds</div></div>';
   h+='</div>';
   // 7-day bar mini chart
-  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:40px;margin-bottom:4px">';
-  var maxCount=Math.max.apply(null,dayFeedData.map(function(d){return d.count;}));
+  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:52px;margin-bottom:4px">';
+  var maxCount=Math.max.apply(null,dayFeedData.map(function(d){return d.count;}))||1;
   dayFeedData.forEach(function(d){
-    var pct=maxCount?d.count/maxCount*100:0;
-    var col=d.count>=4?'rgba(249,115,22,0.7)':'rgba(249,115,22,0.3)';
-    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'
-      +'<div style="width:100%;background:'+col+';height:'+pct+'%;border-radius:3px 3px 0 0;min-height:2px"></div>'
+    var px=d.count?Math.max(4,Math.round(d.count/maxCount*36)):0;
+    var col=d.count>=4?'rgba(249,115,22,0.85)':'rgba(249,115,22,0.3)';
+    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;height:100%">'
+      +'<div style="font-size:0.6rem;color:var(--muted);line-height:1">'+(d.count||'')+'</div>'
+      +'<div style="width:100%;background:'+col+';height:'+px+'px;border-radius:3px 3px 0 0"></div>'
       +'<div style="font-size:0.6rem;color:var(--muted)">'+d.label+'</div>'
       +'</div>';
   });
@@ -1138,12 +1139,13 @@ function renderSleepAnalysis(){
   var olderAvg=olderNightFeeds.length?+(olderNightFeeds.reduce(function(s,d){return s+d.count;},0)/olderNightFeeds.length).toFixed(1):0;
   var trend=recentAvg<olderAvg?'down':recentAvg>olderAvg?'up':'flat';
   h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
-  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:48px;margin-bottom:4px">';
-  var maxNF=Math.max.apply(null,nightFeedTrend.map(function(d){return d.count;}));
+  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:52px;margin-bottom:4px">';
+  var maxNF=Math.max.apply(null,nightFeedTrend.map(function(d){return d.count;}))||1;
   nightFeedTrend.forEach(function(d){
-    var pct=maxNF?d.count/maxNF*100:0;
-    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'
-      +'<div style="width:100%;background:rgba(99,102,241,0.6);height:'+pct+'%;border-radius:3px 3px 0 0;min-height:'+(d.count?3:0)+'px"></div>'
+    var px2=d.count?Math.max(4,Math.round(d.count/maxNF*36)):0;
+    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;height:100%">'
+      +'<div style="font-size:0.6rem;color:var(--muted);line-height:1">'+(d.count||'')+'</div>'
+      +'<div style="width:100%;background:rgba(99,102,241,0.7);height:'+px2+'px;border-radius:3px 3px 0 0"></div>'
       +'<div style="font-size:0.6rem;color:var(--muted)">'+d.label+'</div>'
       +'</div>';
   });
@@ -1158,9 +1160,9 @@ function renderSleepAnalysis(){
   h+='<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Older avg: '+olderAvg+' · Recent avg: '+recentAvg+' night feeds</div>';
   h+='</div>';
 
-  // ── Section 6: Personalised Recommendations ────────────────────────
-  h+='<div class="section-label" style="margin-top:4px">🎯 Recommendations</div>';
-  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+  // ── Section 6+7: Combined Insights (data-driven recs + age tips) ──
+  h+='<div class="section-label" style="margin-top:4px">🎯 Insights & Tips</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:24px">';
   var recs=[];
   // Based on daytime feeds
   if(avgFeedCount>0&&avgFeedCount<4){
@@ -1200,28 +1202,31 @@ function renderSleepAnalysis(){
       recs.push({icon:'📅',color:'#22c55e',text:'Evening feed timing is consistent — good for setting a predictable body clock.'});
     }
   }
-  if(!recs.length){
-    h+='<div style="color:var(--muted);font-size:0.88rem">Not enough data yet for personalised recommendations. Keep tracking!</div>';
-  } else {
+  // Data-driven recs sub-header
+  if(recs.length){
+    h+='<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">BASED ON YOUR DATA</div>';
     recs.forEach(function(r){
       h+='<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start">'
-        +'<span style="font-size:1.2rem;flex-shrink:0">'+r.icon+'</span>'
+        +'<span style="font-size:1.1rem;flex-shrink:0">'+r.icon+'</span>'
         +'<span style="font-size:0.87rem;line-height:1.5;color:'+r.color+'">'+r.text+'</span>'
         +'</div>';
     });
-  }
-  h+='</div>';
-
-  // ── Section 7: Age-Based Tips ─────────────────────────────────────
-  h+='<div class="section-label" style="margin-top:4px">💡 Tips for This Age</div>';
-  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:24px">';
-  if(!bracket){
-    h+='<div style="color:var(--muted);font-size:0.88rem">Add birth date in Settings to see age-specific tips.</div>';
   } else {
+    h+='<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">BASED ON YOUR DATA</div>';
+    h+='<div style="color:var(--muted);font-size:0.88rem;padding:6px 0;border-bottom:1px solid var(--border)">Not enough data yet. Keep tracking for personalised recommendations.</div>';
+  }
+  // Age tips sub-header
+  if(bracket){
     var tips=getAgeTips(bracket,weeks);
+    h+='<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.08em;color:var(--muted);margin-top:14px;margin-bottom:8px">GENERAL TIPS FOR '+weeks+' WEEKS</div>';
     tips.forEach(function(tip){
-      h+='<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:0.88rem;line-height:1.5">'+tip+'</div>';
+      h+='<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);align-items:flex-start">'
+        +'<span style="font-size:0.87rem;line-height:1.5;color:var(--muted)">'+tip+'</span>'
+        +'</div>';
     });
+  } else {
+    h+='<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.08em;color:var(--muted);margin-top:14px;margin-bottom:6px">GENERAL TIPS</div>';
+    h+='<div style="color:var(--muted);font-size:0.88rem">Add birth date in Settings for age-specific tips.</div>';
   }
   h+='</div>';
 
