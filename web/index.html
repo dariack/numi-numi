@@ -806,21 +806,27 @@ function getSleepGapMinutes(weeks){
 // Infer sleep gaps from event list (feed+diaper+pump events sorted by time)
 // Returns array of {start, end, minutes} gaps within the night window (22:00-08:00)
 function inferNightSleep(events, dateStart, dateEnd){
+  // Get events strictly within night window
   var nightEvents=events.filter(function(e){
     return e.startTime>=dateStart && e.startTime<=dateEnd;
   }).sort(function(a,b){return a.startTime-b.startTime;});
 
-  if(!nightEvents.length)return [];
   var gapMin=getSleepGapMinutes(getBabyAgeWeeks());
   var gaps=[];
-  for(var i=1;i<nightEvents.length;i++){
-    var prev=nightEvents[i-1];
-    var curr=nightEvents[i];
-    var prevEnd=prev.endTime||prev.startTime;
-    var gapMs=curr.startTime-prevEnd;
-    var gapMins=Math.round(gapMs/60000);
+
+  // Build a list of "awake points" = synthetic start + all event times + synthetic end
+  // This lets us catch sleep from window-start to first event, and last event to window-end
+  var points=[];
+  points.push({t:dateStart,isEdge:true});
+  nightEvents.forEach(function(e){points.push({t:e.endTime||e.startTime,isEdge:false});});
+  points.push({t:dateEnd,isEdge:true});
+
+  for(var i=1;i<points.length;i++){
+    var prevT=points[i-1].t;
+    var currT=points[i].t;
+    var gapMins=Math.round((currT-prevT)/60000);
     if(gapMins>=gapMin && gapMins<600){
-      gaps.push({start:prevEnd,end:curr.startTime,minutes:gapMins});
+      gaps.push({start:prevT,end:currT,minutes:gapMins});
     }
   }
   return gaps;
@@ -914,12 +920,14 @@ function renderSleepAnalysis(){
   } else {
     var longestGap=lastNightGaps.length?Math.max.apply(null,lastNightGaps.map(function(g){return g.minutes;})):0;
     var totalSleep=lastNightGaps.reduce(function(s,g){return s+g.minutes;},0);
-    var wakings=lastNightGaps.length>1?lastNightGaps.length-1:0;
+    // Wakings = gaps minus last one (morning wake-up doesn't count as a waking)
+    var wakings=Math.max(0,lastNightGaps.length-1);
 
+    h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Night window: 22:00 – 08:00</div>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
     h+='<div class="stat" style="background:var(--card)"><div class="em">💤</div><div class="info"><div class="t" style="color:#818cf8">'+(longestGap?fmtHm(longestGap):'--')+'</div><div class="l">Longest stretch</div></div></div>';
-    h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:#818cf8">'+(totalSleep?fmtHm(totalSleep):'--')+'</div><div class="l">Total night sleep</div></div></div>';
-    h+='<div class="stat" style="background:var(--card)"><div class="em">👶</div><div class="info"><div class="t" style="color:#818cf8">'+wakings+'</div><div class="l">Wakings</div></div></div>';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:#818cf8">'+(totalSleep?fmtHm(totalSleep):'--')+'</div><div class="l">Total sleep</div><div class="l2">22:00–08:00</div></div></div>';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">👶</div><div class="info"><div class="t" style="color:#818cf8">'+wakings+'</div><div class="l">Night wakings</div></div></div>';
     h+='</div>';
 
     // Timeline: fixed 20:00 → 08:00
