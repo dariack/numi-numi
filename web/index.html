@@ -766,6 +766,14 @@ function renderMedicineHistory(){
   document.getElementById('main').innerHTML=h;
 }
 
+function saveBirthDateParts(){
+  var dd=document.getElementById('bd-dd'),mm=document.getElementById('bd-mm'),yyyy=document.getElementById('bd-yyyy');
+  if(!dd||!mm||!yyyy)return;
+  var d=dd.value.trim(),m=mm.value.trim(),y=yyyy.value.trim();
+  if(!d||!m||!y||y.length<4)return;
+  var val=y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0');
+  saveBirthDate(val);
+}
 function saveBirthDate(val){
   cfg.birthDate=val||null;
   db.collection('families').doc(fid).collection('settings').doc('config').update({birthDate:val||null});
@@ -1064,9 +1072,16 @@ function renderSettings(){
   });
   h+='</div>';
   h+='<div class="stats-section"><div class="section-label">Baby</div>';
-  var bdVal=cfg.birthDate?cfg.birthDate:'';
+  var bdParts=cfg.birthDate?cfg.birthDate.split('-'):['','',''];
+  var bdY=bdParts[0]||'',bdM=bdParts[1]||'',bdD=bdParts[2]||'';
   h+='<div class="toggle-row"><div><div class="tr-label">📅 Birth Date</div><div style="font-size:0.75rem;color:var(--muted)">Used for age-appropriate sleep tips</div></div>';
-  h+='<input type="date" id="birth-date-input" value="'+bdVal+'" max="'+new Date().toISOString().split('T')[0]+'" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:0.9rem" onchange="saveBirthDate(this.value)"/></div>';
+  h+='<div style="display:flex;gap:4px;align-items:center">'
+    +'<input type="number" id="bd-dd" placeholder="DD" min="1" max="31" value="'+bdD+'" style="width:48px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:8px;font-size:0.9rem;text-align:center" oninput="saveBirthDateParts()"/>'
+    +'<span style="color:var(--muted)">/</span>'
+    +'<input type="number" id="bd-mm" placeholder="MM" min="1" max="12" value="'+bdM+'" style="width:48px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:8px;font-size:0.9rem;text-align:center" oninput="saveBirthDateParts()"/>'
+    +'<span style="color:var(--muted)">/</span>'
+    +'<input type="number" id="bd-yyyy" placeholder="YYYY" min="2020" max="2099" value="'+bdY+'" style="width:68px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:8px;font-size:0.9rem;text-align:center" oninput="saveBirthDateParts()"/>'
+    +'</div></div>';
   h+='</div>';
   h+='<div class="stats-section"><div class="section-label">Family</div>';
   h+='<div style="padding:10px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
