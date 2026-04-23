@@ -136,6 +136,30 @@ class FirestoreService {
         .whereType<BabyEvent>().toList();
   }
 
+  Future<List<BabyEvent>> getRecentEvents({int days = 10}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final types = ['feed', 'diaper', 'pump', 'sleep'];
+    final results = await Future.wait(types.map((t) =>
+      _getWithCache(_ref.where('type', isEqualTo: t)
+        .where('startTime', isGreaterThan: Timestamp.fromDate(cutoff))
+        .orderBy('startTime', descending: true))));
+    final all = results.expand((s) => s.docs
+      .map((d) { try { return BabyEvent.fromFirestore(d); } catch (_) { return null; } })
+      .whereType<BabyEvent>()).toList();
+    all.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return all;
+  }
+
+  Future<DateTime?> getBirthDate() async {
+    try {
+      final doc = await _db.collection('families').doc(familyId)
+          .collection('settings').doc('config').get();
+      final val = doc.data()?['birthDate'] as String?;
+      if (val == null) return null;
+      return DateTime.tryParse(val);
+    } catch (_) { return null; }
+  }
+
   Future<BabyEvent?> getOngoing() async {
     final now = DateTime.now();
     final cutoff = now.subtract(const Duration(hours: 12));

@@ -70,4 +70,18 @@ class SettingsService {
   Future<void> save(TrackerSettings settings) async {
     await _ref.set(settings.toMap());
   }
+
+  Future<DateTime?> getBirthDate() async {
+    try {
+      final snap = await _ref.get();
+      if (!snap.exists) return null;
+      final val = (snap.data() as Map<String, dynamic>)['birthDate'] as String?;
+      return val != null ? DateTime.tryParse(val) : null;
+    } catch (_) { return null; }
+  }
+
+  Future<void> saveBirthDate(DateTime date) async {
+    final val = '${date.year}-${date.month.toString().padLeft(2,'0')}-${date.day.toString().padLeft(2,'0')}';
+    await _ref.set({'birthDate': val}, SetOptions(merge: true));
+  }
 }

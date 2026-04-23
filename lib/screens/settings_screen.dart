@@ -22,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   TrackerSettings _settings = const TrackerSettings();
   bool _loading = true;
   List<String> _widgetSlots = ['feed', 'diaper'];
+  DateTime? _birthDate;
 
   @override
   void initState() {
@@ -32,7 +33,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final s = await widget.settingsService.get();
     final slots = await WidgetService.getWidgetSlots();
-    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _loading = false; });
+    final bd = await widget.settingsService.getBirthDate();
+    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _birthDate = bd; _loading = false; });
   }
 
   Future<void> _toggleWidgetSlot(String type) async {
@@ -120,6 +122,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _SettingsToggle(item: item),
               )),
+          const SizedBox(height: 24),
+          Text('Baby',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500, letterSpacing: 0.5)),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey.shade800 : Colors.grey.shade200),
+            ),
+            child: Row(children: [
+              const Text('📅', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Birth Date', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                Text(_birthDate != null
+                    ? '${_birthDate!.day.toString().padLeft(2,'0')}/${_birthDate!.month.toString().padLeft(2,'0')}/${_birthDate!.year}'
+                    : 'Not set',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              ])),
+              TextButton(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _birthDate ?? DateTime.now().subtract(const Duration(days: 60)),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                    helpText: 'Select birth date',
+                  );
+                  if (picked != null) {
+                    await widget.settingsService.saveBirthDate(picked);
+                    if (mounted) setState(() => _birthDate = picked);
+                  }
+                },
+                child: Text(_birthDate != null ? 'Change' : 'Set'),
+              ),
+            ]),
+          ),
           const SizedBox(height: 24),
           Text('Widget',
               style: TextStyle(

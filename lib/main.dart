@@ -11,6 +11,7 @@ import 'screens/history_screen.dart';
 import 'screens/insights_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/medicine_screen.dart';
+import 'screens/sleep_analysis_screen.dart';
 import 'services/firestore_service.dart';
 import 'services/medicine_service.dart';
 import 'models/medicine.dart';
@@ -266,6 +267,12 @@ class _MainAppState extends State<MainApp> {
         builder: () => ActionTabScreen(service: _service, type: EventType.pump),
       ));
     }
+
+    tabs.add(_NavTab(
+      id: 'sleep_analysis', icon: Icons.bedtime_outlined, selectedIcon: Icons.bedtime,
+      label: 'Sleep',
+      builder: () => SleepAnalysisScreen(service: _service),
+    ));
 
     tabs.add(_NavTab(
       id: 'medicine', icon: Icons.medication_outlined, selectedIcon: Icons.medication,
