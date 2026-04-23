@@ -128,6 +128,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="nav-item" data-tab="sleep" onclick="setTab('sleep')" style="display:none"><span class="icon">😴</span> Sleep</div>
       <div class="nav-item" data-tab="diaper" onclick="setTab('diaper')" style="display:none"><span class="icon">🧷</span> Diaper</div>
       <div class="nav-item" data-tab="pump" onclick="setTab('pump')" style="display:none"><span class="icon">🧴</span> Pump</div>
+      <div class="nav-item" data-tab="sleep_analysis" onclick="setTab('sleep_analysis')"><span class="icon">🌙</span> Sleep</div>
       <div class="nav-item" data-tab="medicine" onclick="setTab('medicine')"><span class="icon">💊</span> Medicine</div>
       <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
@@ -150,7 +151,7 @@ var FC={apiKey:"AIzaSyAbCR1lJ3JIyHyRsV5IboL1h4LEwe9EQ2E",authDomain:"yuli-tracke
 firebase.initializeApp(FC);var db=firebase.firestore();
 db.enablePersistence({synchronizeTabs:true}).catch(function(){});
 var fid=localStorage.getItem('familyId')||'',unsub=null,allEv=[],tab='home',typeF='all',timeF='all',charts={},rd=7;
-var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false};
+var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false,birthDate:null};
 var cfgUnsub=null;
 var allMedicines=[],allMedicineGiven=[],medUnsub=null,medGivenUnsub=null;
 
@@ -173,7 +174,7 @@ function startApp(){
 function listenConfig(){
   if(cfgUnsub)cfgUnsub();
   cfgUnsub=db.collection('families').doc(fid).collection('settings').doc('config').onSnapshot(function(doc){
-    if(doc.exists){var d=doc.data();cfg={trackSleep:d.trackSleep!==false,trackFeed:d.trackFeed!==false,trackDiaper:d.trackDiaper!==false,trackPump:d.trackPump===true}}
+    if(doc.exists){var d=doc.data();cfg={trackSleep:d.trackSleep!==false,trackFeed:d.trackFeed!==false,trackDiaper:d.trackDiaper!==false,trackPump:d.trackPump===true,birthDate:d.birthDate||null}}
     updateNav();render();
   });
 }
@@ -198,7 +199,7 @@ function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<d
 
 function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
 function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
-  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='medicine')renderMedicine();else if(tab==='settings')renderSettings()}
+  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='sleep_analysis')renderSleepAnalysis();else if(tab==='medicine')renderMedicine();else if(tab==='settings')renderSettings()}
 
 // ==================== HOME ====================
 // Compute stats from allEv — pure JS, no network calls
@@ -765,6 +766,289 @@ function renderMedicineHistory(){
   document.getElementById('main').innerHTML=h;
 }
 
+function saveBirthDate(val){
+  cfg.birthDate=val||null;
+  db.collection('families').doc(fid).collection('settings').doc('config').update({birthDate:val||null});
+}
+
+// ==================== SLEEP ANALYSIS ====================
+
+function getBabyAgeWeeks(){
+  if(!cfg.birthDate)return null;
+  var born=new Date(cfg.birthDate);
+  var now=new Date();
+  return Math.floor((now-born)/(7*864e5));
+}
+
+function getAgeBracket(weeks){
+  if(weeks===null)return null;
+  if(weeks<6)return '0-6w';
+  if(weeks<12)return '6-12w';
+  if(weeks<20)return '3-4m';
+  if(weeks<28)return '4-6m';
+  return '6m+';
+}
+
+function getSleepGapMinutes(weeks){
+  if(weeks===null||weeks<6)return 45;
+  if(weeks<12)return 60;
+  return 90;
+}
+
+// Infer sleep gaps from event list (feed+diaper+pump events sorted by time)
+// Returns array of {start, end, minutes} gaps within the night window (22:00-08:00)
+function inferNightSleep(events, dateStart, dateEnd){
+  var nightEvents=events.filter(function(e){
+    return e.startTime>=dateStart && e.startTime<=dateEnd;
+  }).sort(function(a,b){return a.startTime-b.startTime;});
+
+  if(!nightEvents.length)return [];
+  var gapMin=getSleepGapMinutes(getBabyAgeWeeks());
+  var gaps=[];
+  for(var i=1;i<nightEvents.length;i++){
+    var prev=nightEvents[i-1];
+    var curr=nightEvents[i];
+    var prevEnd=prev.endTime||prev.startTime;
+    var gapMs=curr.startTime-prevEnd;
+    var gapMins=Math.round(gapMs/60000);
+    if(gapMins>=gapMin && gapMins<600){
+      gaps.push({start:prevEnd,end:curr.startTime,minutes:gapMins});
+    }
+  }
+  return gaps;
+}
+
+function getNightWindow(baseDate){
+  // Night = 10pm on baseDate to 8am next day
+  var d=new Date(baseDate);
+  var start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),22,0,0);
+  var end=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,8,0,0);
+  return {start:start,end:end};
+}
+
+function fmtHm(mins){
+  if(mins<60)return mins+'m';
+  var h=Math.floor(mins/60),m=mins%60;
+  return m>0?h+'h '+m+'m':h+'h';
+}
+
+function getAgeTips(bracket,weeks){
+  var tips={
+    '0-6w':[
+      '😴 At this age ('+weeks+' weeks), no sleep training — just observe and respond.',
+      '🌯 Swaddling reduces the startle reflex and helps longer stretches.',
+      '🌙 Keep night interactions quiet and dim to build day/night awareness.',
+      '🍼 Feed on demand — frequent feeding is normal and needed for growth.',
+      '✅ A 2–3h night stretch is great at this age. Any longer is a bonus.'
+    ],
+    '6-12w':[
+      '🍼 Cluster feeding (2+ feeds in 2h) in the evening can front-load calories → longer first stretch.',
+      '🌙 Aim for a consistent bedtime window of 8–10pm.',
+      '✅ A 3–5h first stretch is excellent at '+weeks+' weeks.',
+      '😴 Put baby down drowsy but still awake to start building self-soothing.',
+      '☀️ Prioritise daytime feeds to shift more calories to the day.'
+    ],
+    '3-4m':[
+      '⚠️ The 3–4 month sleep regression is real — expect disruption even if things were improving.',
+      '✅ Target first stretch: 5–6h. Total night sleep: 9–11h.',
+      '📅 A consistent bedtime routine (bath, feed, dark room) starts to matter now.',
+      '😴 Drowsy-but-awake is key — avoid fully rocking to sleep.',
+      '🍼 If cluster feeding in the evening, keep it going — it still helps.'
+    ],
+    '4-6m':[
+      '✅ 6–8h first stretches are achievable. Total night sleep target: 10–12h.',
+      '📅 Consistent bedtime 7–8pm is now important.',
+      '😴 Gentle sleep training methods (fading, pick-up/put-down) are now appropriate.',
+      '🌙 Night feeds may start naturally spacing out — follow the baby lead.',
+      '💪 Daytime nap consolidation begins — 3 naps/day is typical.'
+    ],
+    '6m+':[
+      '✅ Most babies can sleep 8–10h. Formal sleep training methods are appropriate.',
+      '📅 Aim for bedtime 7–8pm with a consistent pre-sleep routine.',
+      '🍼 Night weaning can be considered if weight gain is on track.',
+      '💪 2 naps/day is typical — morning and afternoon.',
+      '😴 Self-soothing is the goal — minimize intervention for night wakings.'
+    ]
+  };
+  return tips[bracket]||tips['6-12w'];
+}
+
+function renderSleepAnalysis(){
+  var h='<div class="page-title">🌙 Sleep Analysis</div>';
+  var weeks=getBabyAgeWeeks();
+  var bracket=getAgeBracket(weeks);
+
+  if(!cfg.birthDate){
+    h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:16px">'
+      +'<div style="font-weight:700;color:#a855f7;margin-bottom:4px">📅 Set baby birth date</div>'
+      +'<div style="font-size:0.88rem;color:var(--muted);margin-bottom:12px">Add birth date in Settings for age-appropriate tips.</div>'
+      +'<button onclick="setTab(\"settings\")" style="background:#a855f7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer">Go to Settings</button>'
+      +'</div>';
+  } else {
+    h+='<div style="font-size:0.85rem;color:var(--muted);margin-bottom:16px">Yuli is <strong style="color:var(--text)">'+weeks+' weeks old</strong></div>';
+  }
+
+  var now=new Date();
+  var allEvents=allEv.filter(function(e){
+    return e.type==='feed'||e.type==='diaper'||e.type==='pump';
+  });
+
+  // ── Section 1: Last Night ──────────────────────────────────────────
+  h+='<div class="section-label">🌙 Last Night</div>';
+  var lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-1));
+  // If before 8am use night that started 2 nights ago
+  if(now.getHours()<8)lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-2));
+  var lastNightGaps=inferNightSleep(allEvents,lastNight.start,lastNight.end);
+  var lastNightEvents=allEvents.filter(function(e){return e.startTime>=lastNight.start&&e.startTime<=lastNight.end;});
+  
+  if(!lastNightEvents.length && !lastNightGaps.length){
+    h+='<div style="color:var(--muted);font-size:0.88rem;padding:12px 0">No data for last night yet.</div>';
+  } else {
+    var longestGap=lastNightGaps.length?Math.max.apply(null,lastNightGaps.map(function(g){return g.minutes;})):0;
+    var totalSleep=lastNightGaps.reduce(function(s,g){return s+g.minutes;},0);
+    var wakings=lastNightGaps.length>1?lastNightGaps.length-1:0;
+
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">💤</div><div class="info"><div class="t" style="color:#818cf8">'+(longestGap?fmtHm(longestGap):'--')+'</div><div class="l">Longest stretch</div></div></div>';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:#818cf8">'+(totalSleep?fmtHm(totalSleep):'--')+'</div><div class="l">Total night sleep</div></div></div>';
+    h+='<div class="stat" style="background:var(--card)"><div class="em">👶</div><div class="info"><div class="t" style="color:#818cf8">'+wakings+'</div><div class="l">Wakings</div></div></div>';
+    h+='</div>';
+
+    // Timeline
+    h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+    h+='<div style="font-size:0.8rem;font-weight:600;color:var(--muted);margin-bottom:10px">NIGHT TIMELINE (10pm – 8am)</div>';
+    var tlStart=lastNight.start.getTime(),tlEnd=lastNight.end.getTime(),tlRange=tlEnd-tlStart;
+    h+='<div style="position:relative;height:36px;background:rgba(99,102,241,0.08);border-radius:6px;overflow:hidden">';
+    // Sleep gaps = indigo, awake = transparent
+    lastNightGaps.forEach(function(g){
+      var left=Math.max(0,(g.start.getTime()-tlStart)/tlRange*100);
+      var width=(g.minutes*60000)/tlRange*100;
+      h+='<div style="position:absolute;top:0;bottom:0;left:'+left+'%;width:'+Math.min(width,100-left)+'%;background:rgba(99,102,241,0.5);border-radius:3px"></div>';
+    });
+    // Event markers
+    lastNightEvents.forEach(function(e){
+      var left=(e.startTime.getTime()-tlStart)/tlRange*100;
+      if(left<0||left>100)return;
+      var emoji=e.type==='feed'?'🍼':e.type==='diaper'?'🧷':'🥛';
+      h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:14px;line-height:1">'+emoji+'</div>';
+    });
+    h+='</div>';
+    h+='<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--muted);margin-top:4px"><span>10pm</span><span>1am</span><span>4am</span><span>7am</span></div>';
+    h+='</div>';
+  }
+
+  // ── Section 2: 7-Day Trend ─────────────────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">📊 7-Day Trend</div>';
+  var nightData=[];
+  for(var di=7;di>=1;di--){
+    var nd=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-di));
+    var ng=inferNightSleep(allEvents,nd.start,nd.end);
+    var longest=ng.length?Math.max.apply(null,ng.map(function(g){return g.minutes;})):0;
+    var total=ng.reduce(function(s,g){return s+g.minutes;},0);
+    var d=new Date(nd.start);
+    nightData.push({label:pad(d.getDate())+'/'+pad(d.getMonth()+1),longest:longest,total:total});
+  }
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+  h+='<div style="position:relative;height:160px"><canvas id="sleep-trend-chart"></canvas></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">';
+  var avgLongest=nightData.filter(function(d){return d.longest>0;});
+  var avgL=avgLongest.length?Math.round(avgLongest.reduce(function(s,d){return s+d.longest;},0)/avgLongest.length):0;
+  var avgTotalArr=nightData.filter(function(d){return d.total>0;});
+  var avgT=avgTotalArr.length?Math.round(avgTotalArr.reduce(function(s,d){return s+d.total;},0)/avgTotalArr.length):0;
+  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:#818cf8">'+(avgL?fmtHm(avgL):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg longest stretch</div></div>';
+  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:#818cf8">'+(avgT?fmtHm(avgT):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg total night sleep</div></div>';
+  h+='</div></div>';
+
+  // ── Section 3: Last Feed Before Night ─────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">🍼 Evening Feeding Pattern</div>';
+  var feedEvents=allEv.filter(function(e){return e.type==='feed';});
+  var eveningData=[];
+  for(var di2=7;di2>=1;di2--){
+    var nd2=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-di2));
+    // Feeds in 6pm-midnight window
+    var eveningStart=new Date(nd2.start.getFullYear(),nd2.start.getMonth(),nd2.start.getDate(),18,0,0);
+    var eveningFeeds=feedEvents.filter(function(e){return e.startTime>=eveningStart&&e.startTime<nd2.start.getTime()+2*3600000;})
+      .sort(function(a,b){return a.startTime-b.startTime;});
+    if(!eveningFeeds.length)continue;
+    var lastFeed=eveningFeeds[eveningFeeds.length-1];
+    // Cluster: 2+ feeds within 2h before last feed
+    var clusterWindow=new Date(lastFeed.startTime.getTime()-2*3600000);
+    var clusterFeeds=eveningFeeds.filter(function(e){return e.startTime>=clusterWindow;});
+    var isCluster=clusterFeeds.length>=2;
+    // Night stretch after this
+    var ng2=inferNightSleep(allEvents,nd2.start,nd2.end);
+    var firstStretch=ng2.length?ng2[0].minutes:0;
+    eveningData.push({
+      lastFeedTime:lastFeed.startTime,
+      isCluster:isCluster,
+      clusterCount:clusterFeeds.length,
+      firstStretch:firstStretch
+    });
+  }
+
+  if(!eveningData.length){
+    h+='<div style="color:var(--muted);font-size:0.88rem;padding:8px 0">Not enough data yet.</div>';
+  } else {
+    var clusterNights=eveningData.filter(function(d){return d.isCluster;});
+    var nonClusterNights=eveningData.filter(function(d){return !d.isCluster;});
+    var avgClusterStretch=clusterNights.length?Math.round(clusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/clusterNights.length):0;
+    var avgNoClusterStretch=nonClusterNights.length?Math.round(nonClusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/nonClusterNights.length):0;
+    var lastFeedAvgMs=eveningData.reduce(function(s,d){return s+d.lastFeedTime.getTime();},0)/eveningData.length;
+    var avgLastFeed=new Date(lastFeedAvgMs);
+
+    h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
+    h+='<div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:var(--feed)">'+pad(avgLastFeed.getHours())+':'+pad(avgLastFeed.getMinutes())+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg last evening feed</div></div>';
+    h+='<div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:var(--feed)">'+clusterNights.length+'/'+eveningData.length+' nights</div><div style="font-size:0.78rem;color:var(--muted)">With cluster feeding</div></div>';
+    h+='</div>';
+    if(clusterNights.length>0 && nonClusterNights.length>0){
+      h+='<div style="border-top:1px solid var(--border);padding-top:10px">';
+      h+='<div style="font-size:0.82rem;color:var(--muted);margin-bottom:6px">First stretch after:</div>';
+      h+='<div style="display:flex;gap:16px">';
+      h+='<div><span style="color:#22c55e;font-weight:700">'+fmtHm(avgClusterStretch)+'</span> <span style="font-size:0.78rem;color:var(--muted)">with cluster feeding</span></div>';
+      h+='<div><span style="color:#f59e0b;font-weight:700">'+fmtHm(avgNoClusterStretch)+'</span> <span style="font-size:0.78rem;color:var(--muted)">without</span></div>';
+      h+='</div></div>';
+    }
+    h+='</div>';
+  }
+
+  // ── Section 4: Age-Based Tips ─────────────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">💡 Tips for This Age</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:24px">';
+  if(!bracket){
+    h+='<div style="color:var(--muted);font-size:0.88rem">Add birth date in Settings to see age-specific tips.</div>';
+  } else {
+    var tips=getAgeTips(bracket,weeks);
+    tips.forEach(function(tip){
+      h+='<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:0.88rem;line-height:1.5">'+tip+'</div>';
+    });
+  }
+  h+='</div>';
+
+  document.getElementById('main').innerHTML=h;
+
+  // Draw chart after DOM is ready
+  if(nightData.some(function(d){return d.longest>0;})){
+    var benchmarkH = bracket==='0-6w'?180:bracket==='6-12w'?240:bracket==='3-4m'?330:bracket==='4-6m'?420:480;
+    dcx('sleep-trend-chart');
+    charts['sleep-trend-chart']=new Chart(document.getElementById('sleep-trend-chart'),{
+      type:'bar',
+      data:{
+        labels:nightData.map(function(d){return d.label;}),
+        datasets:[
+          {label:'Longest stretch',data:nightData.map(function(d){return+(d.longest/60).toFixed(2);}),backgroundColor:'rgba(99,102,241,0.7)',borderRadius:4,order:2},
+          {label:'Total night sleep',data:nightData.map(function(d){return+(d.total/60).toFixed(2);}),backgroundColor:'rgba(99,102,241,0.2)',borderRadius:4,order:3},
+          {label:'Age benchmark',data:nightData.map(function(){return+(benchmarkH/60).toFixed(2);}),type:'line',borderColor:'#f59e0b',borderDash:[4,4],pointRadius:0,fill:false,order:1}
+        ]
+      },
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{labels:{color:tc,font:{size:10}}},tooltip:{callbacks:{label:function(c){var v=c.parsed.y;var h=Math.floor(v),m=Math.round((v-h)*60);return c.dataset.label+': '+(h>0?h+'h ':'')+(m>0?m+'m':'');}}}}  ,
+        scales:{y:{beginAtZero:true,ticks:{color:tc,callback:function(v){return v+'h'}},grid:{color:gc2}},x:{ticks:{color:tc},grid:{display:false}}}
+      }
+    });
+  }
+}
+
 function renderSettings(){
   var h='<div class="page-title">⚙️ Settings</div>';
   h+='<div class="stats-section"><div class="section-label">Track Actions</div>';
@@ -776,6 +1060,11 @@ function renderSettings(){
     h+='<div class="toggle-row"><div><div class="tr-label">'+a.l+'</div><div style="font-size:0.75rem;color:var(--muted)">'+a.d+'</div></div>';
     h+='<div class="tr-toggle '+(cfg[a.k]?'on':'')+'" onclick="cfg.'+a.k+'=!cfg.'+a.k+';saveCfg()"></div></div>';
   });
+  h+='</div>';
+  h+='<div class="stats-section"><div class="section-label">Baby</div>';
+  var bdVal=cfg.birthDate?cfg.birthDate:'';
+  h+='<div class="toggle-row"><div><div class="tr-label">📅 Birth Date</div><div style="font-size:0.75rem;color:var(--muted)">Used for age-appropriate sleep tips</div></div>';
+  h+='<input type="date" id="birth-date-input" value="'+bdVal+'" max="'+new Date().toISOString().split('T')[0]+'" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:0.9rem" onchange="saveBirthDate(this.value)"/></div>';
   h+='</div>';
   h+='<div class="stats-section"><div class="section-label">Family</div>';
   h+='<div style="padding:10px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
