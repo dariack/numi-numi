@@ -923,7 +923,7 @@ function renderSleepAnalysis(){
     // Wakings = gaps minus last one (morning wake-up doesn't count as a waking)
     var wakings=Math.max(0,lastNightGaps.length-1);
 
-    h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Night window: 22:00 – 08:00</div>';
+    h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Night window: 22:00 – 08:00 · Sleep inferred from gaps &gt;'+(getSleepGapMinutes(getBabyAgeWeeks()))+'min between events</div>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
     h+='<div class="stat" style="background:var(--card)"><div class="em">💤</div><div class="info"><div class="t" style="color:#818cf8">'+(longestGap?fmtHm(longestGap):'--')+'</div><div class="l">Longest stretch</div></div></div>';
     h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:#818cf8">'+(totalSleep?fmtHm(totalSleep):'--')+'</div><div class="l">Total sleep</div><div class="l2">22:00–08:00</div></div></div>';
@@ -1024,6 +1024,21 @@ function renderSleepAnalysis(){
   var avgT=avgTotalArr.length?Math.round(avgTotalArr.reduce(function(s,d){return s+d.total;},0)/avgTotalArr.length):0;
   h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:#818cf8">'+(avgL?fmtHm(avgL):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg longest stretch</div></div>';
   h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:#2dd4bf">'+(avgT?fmtHm(avgT):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg total night sleep</div></div>';
+  // Trend direction
+  var trendDir='flat';
+  if(nightData.length>=4){
+    var firstHalf=nightData.slice(0,3).filter(function(d){return d.longest>0;});
+    var secondHalf=nightData.slice(4).filter(function(d){return d.longest>0;});
+    var fhAvg=firstHalf.length?firstHalf.reduce(function(s,d){return s+d.longest;},0)/firstHalf.length:0;
+    var shAvg=secondHalf.length?secondHalf.reduce(function(s,d){return s+d.longest;},0)/secondHalf.length:0;
+    if(shAvg>fhAvg+15)trendDir='up';else if(shAvg<fhAvg-15)trendDir='down';
+  }
+  var trendBlurb=trendDir==='up'?'📈 Longest stretch is growing — great progress this week.'
+    :trendDir==='down'?'📉 Longest stretch shorter recently — could be a growth spurt or regression.'
+    :'➡️ Night stretches are fairly consistent this week.';
+  var benchMin7=bracket==='0-6w'?180:bracket==='6-12w'?240:bracket==='3-4m'?330:bracket==='4-6m'?420:480;
+  var benchBlurb=bracket?'Age benchmark ('+fmtHm(benchMin7)+' longest stretch) is based on typical ranges for '+(weeks!==null?weeks+'-week':'this age')+' babies — individual variation is normal.':'';
+  h+='<div style="font-size:0.8rem;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);line-height:1.5">'+trendBlurb+(benchBlurb?' '+benchBlurb:'')+'</div>';
   h+='</div></div>';
 
   // ── Section 3: Last Feed Before Night ─────────────────────────────
@@ -1077,6 +1092,16 @@ function renderSleepAnalysis(){
       h+='<div><span style="color:#f59e0b;font-weight:700">'+fmtHm(avgNoClusterStretch)+'</span> <span style="font-size:0.78rem;color:var(--muted)">without</span></div>';
       h+='</div></div>';
     }
+    // Bottom line blurb
+    var cfBlurb2='';
+    if(clusterNights.length>0&&nonClusterNights.length>0&&avgClusterStretch>avgNoClusterStretch){
+      cfBlurb2='✅ Cluster feeding is working — nights with 2+ evening feeds produce ~'+fmtHm(avgClusterStretch)+' first stretch vs ~'+fmtHm(avgNoClusterStretch)+' without. Keep the evening feeds dense.';
+    } else if(clusterNights.length>0&&nonClusterNights.length>0){
+      cfBlurb2='Cluster feeding detected on '+clusterNights.length+'/'+eveningData.length+' nights but no clear difference yet — keep the pattern going, it takes consistency.';
+    } else if(!clusterNights.length&&weeks!==null&&weeks>=6){
+      cfBlurb2='No cluster feeding detected this week. Giordano recommends front-loading 2+ feeds in the 6–10pm window to maximise night calories.';
+    }
+    if(cfBlurb2)h+='<div style="font-size:0.8rem;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);line-height:1.5">'+cfBlurb2+'</div>';
     h+='</div>';
   }
 
@@ -1085,8 +1110,8 @@ function renderSleepAnalysis(){
   var dayFeedData=[];
   for(var dfi=6;dfi>=0;dfi--){
     var dfDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dfi);
-    var dfStart=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),7,0,0);
-    var dfEnd=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),19,0,0);
+    var dfStart=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),8,0,0);
+    var dfEnd=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),20,0,0);
     var dayFeeds=feedEvents.filter(function(e){return e.startTime>=dfStart&&e.startTime<dfEnd;}).sort(function(a,b){return a.startTime-b.startTime;});
     if(!dayFeeds.length){dayFeedData.push({label:pad(dfDate.getDate())+'/'+pad(dfDate.getMonth()+1),count:0,avgGap:0});continue;}
     // Avg gap between feeds
@@ -1105,7 +1130,7 @@ function renderSleepAnalysis(){
   var feedTargetOk=avgFeedCount>=4;
   h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
-  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+avgFeedCount+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg feeds/day (7am–7pm)</div></div>';
+  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+avgFeedCount+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg feeds/day (8am–8pm)</div></div>';
   h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+(avgGapVal?fmtHm(avgGapVal):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg gap between feeds</div></div>';
   h+='</div>';
   // 7-day bar mini chart
@@ -1121,7 +1146,20 @@ function renderSleepAnalysis(){
       +'</div>';
   });
   h+='</div>';
-  h+='<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Brighter bars = 4+ feeds (Giordano target)</div>';
+  var dfTarget=4;
+  var dfBlurb='';
+  if(avgFeedCount>=dfTarget){
+    dfBlurb='✅ '+avgFeedCount+' avg daytime feeds — above Giordano target of 4+ evenly spaced feeds. Front-loading calories 8am–8pm is the key lever for longer night stretches.';
+  } else if(avgFeedCount>0){
+    dfBlurb='⚠️ '+avgFeedCount+' avg daytime feeds — below the 4-feed target. More frequent daytime feeds reduce night hunger. Try waking for feeds if gaps exceed 3–4h during the day.';
+  } else {
+    dfBlurb='No daytime feed data yet.';
+  }
+  if(avgGapVal>0){
+    var gapIdeal=bracket==='0-6w'||bracket==='6-12w'?'2–3h':bracket==='3-4m'?'3–4h':'3.5–4h';
+    dfBlurb+=' Avg gap between feeds: '+fmtHm(avgGapVal)+' (ideal for this age: '+gapIdeal+').';
+  }
+  h+='<div style="font-size:0.8rem;color:var(--muted);margin-top:6px;line-height:1.5">'+dfBlurb+'</div>';
   h+='</div>';
 
   // ── Section 5: Night Feed Trend ────────────────────────────────────
@@ -1129,9 +1167,19 @@ function renderSleepAnalysis(){
   var nightFeedTrend=[];
   for(var nfi=6;nfi>=0;nfi--){
     var nfNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-nfi-1));
-    var nfFeeds=feedEvents.filter(function(e){return e.startTime>=nfNight.start&&e.startTime<=nfNight.end;});
+    var nfFeeds=feedEvents.filter(function(e){return e.startTime>=nfNight.start&&e.startTime<=nfNight.end;})
+      .sort(function(a,b){return a.startTime-b.startTime;});
+    // Group into sessions (feeds within 30min = one session)
+    var nfSessions=0;
+    if(nfFeeds.length){
+      nfSessions=1;
+      for(var si=1;si<nfFeeds.length;si++){
+        var gap30=Math.round((nfFeeds[si].startTime-(nfFeeds[si-1].endTime||nfFeeds[si-1].startTime))/60000);
+        if(gap30>30)nfSessions++;
+      }
+    }
     var nfDate=new Date(nfNight.start);
-    nightFeedTrend.push({label:pad(nfDate.getDate())+'/'+pad(nfDate.getMonth()+1),count:nfFeeds.length,feeds:nfFeeds});
+    nightFeedTrend.push({label:pad(nfDate.getDate())+'/'+pad(nfDate.getMonth()+1),count:nfSessions,feeds:nfFeeds});
   }
   var recentNightFeeds=nightFeedTrend.slice(-3).filter(function(d){return d.count>0;});
   var olderNightFeeds=nightFeedTrend.slice(0,4).filter(function(d){return d.count>0;});
@@ -1157,7 +1205,12 @@ function renderSleepAnalysis(){
   h+='<span style="font-size:1.3rem">'+trendEmoji+'</span>';
   h+='<span style="font-size:0.88rem;color:'+trendColor+';font-weight:600">'+trendMsg+'</span>';
   h+='</div>';
-  h+='<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Older avg: '+olderAvg+' · Recent avg: '+recentAvg+' night feeds</div>';
+  var nfBlurb='';
+  if(recentAvg===0){nfBlurb='🌙 No night feeds recorded recently — great if baby is sleeping through!';}
+  else if(trend==='down'){nfBlurb='📉 Down from '+olderAvg+' to '+recentAvg+' sessions/night. Giordano method involves gradually reducing night feeds — each reduction shows progress.';}
+  else if(trend==='up'){nfBlurb='📈 Up from '+olderAvg+' to '+recentAvg+' sessions/night. Growth spurts and regressions are normal — check if daytime feeds are sufficient.';}
+  else{nfBlurb='➡️ Holding steady at ~'+recentAvg+' sessions/night. Each session = one complete feeding (both sides counts as one).';}
+  h+='<div style="font-size:0.8rem;color:var(--muted);margin-top:6px;line-height:1.5">'+nfBlurb+'</div>';
   h+='</div>';
 
   // ── Section 6+7: Combined Insights (data-driven recs + age tips) ──
@@ -1166,7 +1219,7 @@ function renderSleepAnalysis(){
   var recs=[];
   // Based on daytime feeds
   if(avgFeedCount>0&&avgFeedCount<4){
-    recs.push({icon:'🍼',color:'#f97316',text:'Averaging '+avgFeedCount+' daytime feeds — try to reach 4+ feeds between 7am–7pm. More calories during the day means less hunger at night (Giordano method).'});
+    recs.push({icon:'🍼',color:'#f97316',text:'Averaging '+avgFeedCount+' daytime feeds — try to reach 4+ feeds between 8am–8pm. More calories during the day means less hunger at night (Giordano method).'});
   } else if(avgFeedCount>=4){
     recs.push({icon:'✅',color:'#22c55e',text:'Great daytime feeding density ('+avgFeedCount+' avg). This sets up well for longer night stretches.'});
   }
