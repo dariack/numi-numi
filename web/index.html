@@ -1053,13 +1053,14 @@ function renderSleepAnalysis(){
     });
   }
 
+  var clusterNights=eveningData.filter(function(d){return d.isCluster;});
+  var nonClusterNights=eveningData.filter(function(d){return !d.isCluster;});
+  var avgClusterStretch=clusterNights.length?Math.round(clusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/clusterNights.length):0;
+  var avgNoClusterStretch=nonClusterNights.length?Math.round(nonClusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/nonClusterNights.length):0;
+
   if(!eveningData.length){
     h+='<div style="color:var(--muted);font-size:0.88rem;padding:8px 0">Not enough data yet.</div>';
   } else {
-    var clusterNights=eveningData.filter(function(d){return d.isCluster;});
-    var nonClusterNights=eveningData.filter(function(d){return !d.isCluster;});
-    var avgClusterStretch=clusterNights.length?Math.round(clusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/clusterNights.length):0;
-    var avgNoClusterStretch=nonClusterNights.length?Math.round(nonClusterNights.reduce(function(s,d){return s+d.firstStretch;},0)/nonClusterNights.length):0;
     var lastFeedAvgMs=eveningData.reduce(function(s,d){return s+d.lastFeedTime.getTime();},0)/eveningData.length;
     var avgLastFeed=new Date(lastFeedAvgMs);
 
@@ -1079,7 +1080,139 @@ function renderSleepAnalysis(){
     h+='</div>';
   }
 
-  // ── Section 4: Age-Based Tips ─────────────────────────────────────
+  // ── Section 4: Daytime Feed Density ──────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">☀️ Daytime Feed Density</div>';
+  var dayFeedData=[];
+  for(var dfi=6;dfi>=0;dfi--){
+    var dfDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dfi);
+    var dfStart=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),7,0,0);
+    var dfEnd=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),19,0,0);
+    var dayFeeds=feedEvents.filter(function(e){return e.startTime>=dfStart&&e.startTime<dfEnd;});
+    if(!dayFeeds.length){dayFeedData.push({label:pad(dfDate.getDate())+'/'+pad(dfDate.getMonth()+1),count:0,avgGap:0});continue;}
+    // Avg gap between feeds
+    var gaps2=[];
+    for(var gi=1;gi<dayFeeds.length;gi++){
+      var g2=Math.round((dayFeeds[gi].startTime-dayFeeds[gi-1].startTime)/60000);
+      if(g2>0&&g2<360)gaps2.push(g2);
+    }
+    var avgGap2=gaps2.length?Math.round(gaps2.reduce(function(s,v){return s+v;},0)/gaps2.length):0;
+    dayFeedData.push({label:pad(dfDate.getDate())+'/'+pad(dfDate.getMonth()+1),count:dayFeeds.length,avgGap:avgGap2});
+  }
+  var avgDayFeeds=dayFeedData.filter(function(d){return d.count>0;});
+  var avgFeedCount=avgDayFeeds.length?+(avgDayFeeds.reduce(function(s,d){return s+d.count;},0)/avgDayFeeds.length).toFixed(1):0;
+  var avgFeedGap=avgDayFeeds.filter(function(d){return d.avgGap>0;});
+  var avgGapVal=avgFeedGap.length?Math.round(avgFeedGap.reduce(function(s,d){return s+d.avgGap;},0)/avgFeedGap.length):0;
+  var feedTargetOk=avgFeedCount>=4;
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
+  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+avgFeedCount+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg feeds/day (7am–7pm)</div></div>';
+  h+='<div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:var(--feed)">'+(avgGapVal?fmtHm(avgGapVal):'--')+'</div><div style="font-size:0.78rem;color:var(--muted)">Avg gap between feeds</div></div>';
+  h+='</div>';
+  // 7-day bar mini chart
+  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:40px;margin-bottom:4px">';
+  var maxCount=Math.max.apply(null,dayFeedData.map(function(d){return d.count;}));
+  dayFeedData.forEach(function(d){
+    var pct=maxCount?d.count/maxCount*100:0;
+    var col=d.count>=4?'rgba(249,115,22,0.7)':'rgba(249,115,22,0.3)';
+    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'
+      +'<div style="width:100%;background:'+col+';height:'+pct+'%;border-radius:3px 3px 0 0;min-height:2px"></div>'
+      +'<div style="font-size:0.6rem;color:var(--muted)">'+d.label+'</div>'
+      +'</div>';
+  });
+  h+='</div>';
+  h+='<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Brighter bars = 4+ feeds (Giordano target)</div>';
+  h+='</div>';
+
+  // ── Section 5: Night Feed Trend ────────────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">📉 Night Feed Trend</div>';
+  var nightFeedTrend=[];
+  for(var nfi=6;nfi>=0;nfi--){
+    var nfNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-nfi-1));
+    var nfFeeds=feedEvents.filter(function(e){return e.startTime>=nfNight.start&&e.startTime<=nfNight.end;});
+    var nfDate=new Date(nfNight.start);
+    nightFeedTrend.push({label:pad(nfDate.getDate())+'/'+pad(nfDate.getMonth()+1),count:nfFeeds.length,feeds:nfFeeds});
+  }
+  var recentNightFeeds=nightFeedTrend.slice(-3).filter(function(d){return d.count>0;});
+  var olderNightFeeds=nightFeedTrend.slice(0,4).filter(function(d){return d.count>0;});
+  var recentAvg=recentNightFeeds.length?+(recentNightFeeds.reduce(function(s,d){return s+d.count;},0)/recentNightFeeds.length).toFixed(1):0;
+  var olderAvg=olderNightFeeds.length?+(olderNightFeeds.reduce(function(s,d){return s+d.count;},0)/olderNightFeeds.length).toFixed(1):0;
+  var trend=recentAvg<olderAvg?'down':recentAvg>olderAvg?'up':'flat';
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+  h+='<div style="display:flex;align-items:flex-end;gap:4px;height:48px;margin-bottom:4px">';
+  var maxNF=Math.max.apply(null,nightFeedTrend.map(function(d){return d.count;}));
+  nightFeedTrend.forEach(function(d){
+    var pct=maxNF?d.count/maxNF*100:0;
+    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'
+      +'<div style="width:100%;background:rgba(99,102,241,0.6);height:'+pct+'%;border-radius:3px 3px 0 0;min-height:'+(d.count?3:0)+'px"></div>'
+      +'<div style="font-size:0.6rem;color:var(--muted)">'+d.label+'</div>'
+      +'</div>';
+  });
+  h+='</div>';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-top:8px">';
+  var trendEmoji=trend==='down'?'📉':trend==='up'?'📈':'➡️';
+  var trendColor=trend==='down'?'#22c55e':trend==='up'?'#ef4444':'#f59e0b';
+  var trendMsg=trend==='down'?'Trending down — great progress!':trend==='up'?'More night feeds recently':trend==='flat'?'Holding steady':'';
+  h+='<span style="font-size:1.3rem">'+trendEmoji+'</span>';
+  h+='<span style="font-size:0.88rem;color:'+trendColor+';font-weight:600">'+trendMsg+'</span>';
+  h+='</div>';
+  h+='<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Older avg: '+olderAvg+' · Recent avg: '+recentAvg+' night feeds</div>';
+  h+='</div>';
+
+  // ── Section 6: Personalised Recommendations ────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">🎯 Recommendations</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
+  var recs=[];
+  // Based on daytime feeds
+  if(avgFeedCount>0&&avgFeedCount<4){
+    recs.push({icon:'🍼',color:'#f97316',text:'Averaging '+avgFeedCount+' daytime feeds — try to reach 4+ feeds between 7am–7pm. More calories during the day means less hunger at night (Giordano method).'});
+  } else if(avgFeedCount>=4){
+    recs.push({icon:'✅',color:'#22c55e',text:'Great daytime feeding density ('+avgFeedCount+' avg). This sets up well for longer night stretches.'});
+  }
+  // Based on night feed trend
+  if(trend==='down'&&recentAvg<=1){
+    recs.push({icon:'🌙',color:'#22c55e',text:'Night feeds reducing — down to ~'+recentAvg+' per night. Good progress toward longer stretches.'});
+  } else if(trend==='up'){
+    recs.push({icon:'⚠️',color:'#f59e0b',text:'Night feeds increased recently. Check for a growth spurt, or consider whether daytime feeds can be increased to compensate.'});
+  }
+  // Based on cluster feeding
+  if(clusterNights.length>0&&nonClusterNights.length>0&&avgClusterStretch>avgNoClusterStretch){
+    var diff=avgClusterStretch-avgNoClusterStretch;
+    recs.push({icon:'🍇',color:'#a855f7',text:'Cluster feeding adds ~'+fmtHm(diff)+' to the first night stretch on average. Keep it up in the 6–10pm window.'});
+  } else if(clusterNights.length===0&&weeks>=6){
+    recs.push({icon:'🍇',color:'#a855f7',text:'No cluster feeding detected. Try 2+ feeds between 6–10pm to extend the first stretch.'});
+  }
+  // Based on longest stretch vs benchmark
+  if(avgL>0&&bracket){
+    var benchMin=bracket==='0-6w'?180:bracket==='6-12w'?240:bracket==='3-4m'?330:bracket==='4-6m'?420:480;
+    if(avgL<benchMin*0.7){
+      recs.push({icon:'📊',color:'#818cf8',text:'Longest stretch (avg '+fmtHm(avgL)+') is below the '+fmtHm(benchMin)+' benchmark for this age. Focus on daytime calories and a consistent bedtime window.'});
+    } else if(avgL>=benchMin){
+      recs.push({icon:'🏆',color:'#22c55e',text:'Longest stretch ('+fmtHm(avgL)+') meets or exceeds the age benchmark of '+fmtHm(benchMin)+'!'});
+    }
+  }
+  // Based on bedtime consistency
+  if(eveningData.length>=4){
+    var bedtimeMins=eveningData.map(function(d){return d.lastFeedTime.getHours()*60+d.lastFeedTime.getMinutes();});
+    var minBed=Math.min.apply(null,bedtimeMins),maxBed=Math.max.apply(null,bedtimeMins);
+    if(maxBed-minBed>90){
+      recs.push({icon:'📅',color:'#f59e0b',text:'Last evening feed varies by more than '+(Math.round((maxBed-minBed)/6)/10)+'h across nights. A more consistent bedtime window helps set the body clock.'});
+    } else {
+      recs.push({icon:'📅',color:'#22c55e',text:'Evening feed timing is consistent — good for setting a predictable body clock.'});
+    }
+  }
+  if(!recs.length){
+    h+='<div style="color:var(--muted);font-size:0.88rem">Not enough data yet for personalised recommendations. Keep tracking!</div>';
+  } else {
+    recs.forEach(function(r){
+      h+='<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start">'
+        +'<span style="font-size:1.2rem;flex-shrink:0">'+r.icon+'</span>'
+        +'<span style="font-size:0.87rem;line-height:1.5;color:'+r.color+'">'+r.text+'</span>'
+        +'</div>';
+    });
+  }
+  h+='</div>';
+
+  // ── Section 7: Age-Based Tips ─────────────────────────────────────
   h+='<div class="section-label" style="margin-top:4px">💡 Tips for This Age</div>';
   h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:24px">';
   if(!bracket){
