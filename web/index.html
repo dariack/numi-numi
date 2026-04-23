@@ -947,14 +947,24 @@ function renderSleepAnalysis(){
     var nightShadeLeft=(lastNight.start.getTime()-tlStart)/tlRange*100;
     var nightShadeWidth=(lastNight.end.getTime()-lastNight.start.getTime())/tlRange*100;
 
-    h+='<div id="tl-bar" style="position:relative;height:32px;border-bottom:1px solid var(--border);">';
+    h+='<div id="tl-bar" style="position:relative;height:40px;background:rgba(99,102,241,0.04);border-radius:6px;">';
+    h+='<div style="position:absolute;top:0;bottom:0;left:'+nightShadeLeft+'%;width:'+nightShadeWidth+'%;background:rgba(99,102,241,0.1);border-radius:4px"></div>';
 
-    // Event emoji markers only — no blocks
+    // Sleep blocks — with title for hover tooltip
+    lastNightGaps.forEach(function(g){
+      var left=Math.max(0,(g.start.getTime()-tlStart)/tlRange*100);
+      var width=(g.minutes*60000)/tlRange*100;
+      var clampedWidth=Math.min(width,100-left);
+      var label=fmtHm(g.minutes)+' sleep';
+      h+='<div title="'+label+'" style="position:absolute;top:4px;bottom:4px;left:'+left+'%;width:'+clampedWidth+'%;background:rgba(99,102,241,0.6);border-radius:4px;cursor:default"></div>';
+    });
+
+    // Event emoji markers
     tlEvents.forEach(function(e){
       var left=(e.startTime.getTime()-tlStart)/tlRange*100;
       if(left<0||left>100)return;
       var emoji=e.type==='feed'?'🍼':e.type==='diaper'?'🧷':'🥛';
-      h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:16px;line-height:1">'+emoji+'</div>';
+      h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:15px;line-height:1;pointer-events:none">'+emoji+'</div>';
     });
     h+='</div>';
 
