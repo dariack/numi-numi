@@ -1087,13 +1087,13 @@ function renderSleepAnalysis(){
     var dfDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dfi);
     var dfStart=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),7,0,0);
     var dfEnd=new Date(dfDate.getFullYear(),dfDate.getMonth(),dfDate.getDate(),19,0,0);
-    var dayFeeds=feedEvents.filter(function(e){return e.startTime>=dfStart&&e.startTime<dfEnd;});
+    var dayFeeds=feedEvents.filter(function(e){return e.startTime>=dfStart&&e.startTime<dfEnd;}).sort(function(a,b){return a.startTime-b.startTime;});
     if(!dayFeeds.length){dayFeedData.push({label:pad(dfDate.getDate())+'/'+pad(dfDate.getMonth()+1),count:0,avgGap:0});continue;}
     // Avg gap between feeds
     var gaps2=[];
     for(var gi=1;gi<dayFeeds.length;gi++){
       var g2=Math.round((dayFeeds[gi].startTime-dayFeeds[gi-1].startTime)/60000);
-      if(g2>0&&g2<360)gaps2.push(g2);
+      if(g2>0&&g2<480)gaps2.push(g2);
     }
     var avgGap2=gaps2.length?Math.round(gaps2.reduce(function(s,v){return s+v;},0)/gaps2.length):0;
     dayFeedData.push({label:pad(dfDate.getDate())+'/'+pad(dfDate.getMonth()+1),count:dayFeeds.length,avgGap:avgGap2});
