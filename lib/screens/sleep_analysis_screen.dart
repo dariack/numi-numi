@@ -223,7 +223,9 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       final lastFeed = eveningFeeds.last;
       final clusterWindow = lastFeed.startTime.subtract(const Duration(hours: 2));
       final isCluster = eveningFeeds.where((e) => !e.startTime.isBefore(clusterWindow)).length >= 2;
-      final gaps = _inferNightSleep(actionEvents, win.start, win.end, gapMin);
+      // First stretch = gap after last evening feed, starting from feed end (may be before 22:00)
+      final searchFrom = lastFeed.endTime ?? lastFeed.startTime;
+      final gaps = _inferNightSleep(actionEvents, searchFrom, win.end, gapMin);
       final firstStretch = gaps.isEmpty ? 0 : gaps.first.minutes;
       eveningData.add((lastFeedTime: lastFeed.startTime, isCluster: isCluster, firstStretch: firstStretch));
     }

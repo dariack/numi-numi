@@ -1057,8 +1057,9 @@ function renderSleepAnalysis(){
     var clusterWindow=new Date(lastFeed.startTime.getTime()-2*3600000);
     var clusterFeeds=eveningFeeds.filter(function(e){return e.startTime>=clusterWindow;});
     var isCluster=clusterFeeds.length>=2;
-    // Night stretch after this
-    var ng2=inferNightSleep(allEvents,nd2.start,nd2.end);
+    // First stretch = gap after last feed end (may start before 22:00)
+    var searchFrom=lastFeed.endTime||lastFeed.startTime;
+    var ng2=inferNightSleep(allEvents,searchFrom,nd2.end);
     var firstStretch=ng2.length?ng2[0].minutes:0;
     eveningData.push({
       lastFeedTime:lastFeed.startTime,
