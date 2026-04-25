@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
+import '../services/reminder_service.dart';
+import '../models/reminder_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   final SettingsService settingsService;
+  final ReminderService? reminderService;
   final String familyId;
   final VoidCallback onChangeFamilyId;
 
   const SettingsScreen({
     super.key,
     required this.settingsService,
+    this.reminderService,
     required this.familyId,
     required this.onChangeFamilyId,
   });
@@ -23,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
   List<String> _widgetSlots = ['feed', 'diaper'];
   DateTime? _birthDate;
+  ReminderSettings _reminders = const ReminderSettings();
 
   @override
   void initState() {
@@ -34,7 +39,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final s = await widget.settingsService.get();
     final slots = await WidgetService.getWidgetSlots();
     final bd = await widget.settingsService.getBirthDate();
-    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _birthDate = bd; _loading = false; });
+    final reminders = await widget.reminderService?.loadSettings() ?? const ReminderSettings();
+    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _birthDate = bd; _reminders = reminders; _loading = false; });
+  }
+
+  Future<void> _updateReminders(ReminderSettings updated) async {
+    setState(() => _reminders = updated);
+    await widget.reminderService?.updateSettings(updated);
+  }
+
+  Widget _buildReminderSection(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = Theme.of(context).colorScheme.primary;
+    final cardBg = isDark ? const Color(0xFF1E2130) : Colors.white;
+    final borderColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
+
+    Widget thresholdPicker(int current, void Function(int) onSelect) {
+      return Row(children: [2, 3, 4].map((h) {
+        final sel = current == h;
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () => onSelect(h),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: sel ? c : Colors.grey.withOpacity(0.3), width: sel ? 2 : 1),
+                color: sel ? c.withOpacity(0.12) : null,
+              ),
+              child: Text(h.toString() + 'h', style: TextStyle(
+                fontSize: 13, fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                color: sel ? c : Colors.grey.shade400)),
+            ),
+          ),
+        );
+      }).toList());
+    }
+
+    return Container(
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
+          color: cardBg, border: Border.all(color: borderColor)),
+      child: Column(children: [
+        SwitchListTile(
+          title: const Text('🍼 Feed reminder'),
+          subtitle: Text(_reminders.feedEnabled
+              ? 'Remind after ' + _reminders.feedThresholdHours.toString() + 'h'
+              : 'Off', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          value: _reminders.feedEnabled,
+          onChanged: (v) => _updateReminders(_reminders.copyWith(feedEnabled: v)),
+        ),
+        if (_reminders.feedEnabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(children: [
+              Text('Remind after: ', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+              thresholdPicker(_reminders.feedThresholdHours,
+                  (h) => _updateReminders(_reminders.copyWith(feedThresholdHours: h))),
+            ]),
+          ),
+        Divider(height: 1, color: borderColor),
+        SwitchListTile(
+          title: const Text('🧷 Diaper reminder'),
+          subtitle: Text(_reminders.diaperEnabled
+              ? 'Remind after ' + _reminders.diaperThresholdHours.toString() + 'h'
+              : 'Off', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          value: _reminders.diaperEnabled,
+          onChanged: (v) => _updateReminders(_reminders.copyWith(diaperEnabled: v)),
+        ),
+        if (_reminders.diaperEnabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(children: [
+              Text('Remind after: ', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+              thresholdPicker(_reminders.diaperThresholdHours,
+                  (h) => _updateReminders(_reminders.copyWith(diaperThresholdHours: h))),
+            ]),
+          ),
+        Divider(height: 1, color: borderColor),
+        SwitchListTile(
+          title: const Text('🌙 Quiet hours'),
+          subtitle: Text(_reminders.quietHoursEnabled
+              ? 'No reminders ' + _reminders.quietFrom + ' – ' + _reminders.quietTo
+              : 'Off', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          value: _reminders.quietHoursEnabled,
+          onChanged: (v) => _updateReminders(_reminders.copyWith(quietHoursEnabled: v)),
+        ),
+        if (_reminders.quietHoursEnabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(children: [
+              _TimePickerTile(label: 'From', time: _reminders.quietFrom,
+                  onChanged: (t) => _updateReminders(_reminders.copyWith(quietFrom: t))),
+              const SizedBox(width: 16),
+              _TimePickerTile(label: 'To', time: _reminders.quietTo,
+                  onChanged: (t) => _updateReminders(_reminders.copyWith(quietTo: t))),
+            ]),
+          ),
+      ]),
+    );
   }
 
   Future<void> _toggleWidgetSlot(String type) async {
@@ -220,6 +323,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
           ]),
           const SizedBox(height: 24),
+          Text('Reminders',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500, letterSpacing: 0.5)),
+          const SizedBox(height: 8),
+          _buildReminderSection(context),
+          const SizedBox(height: 24),
           Text('Family',
               style: TextStyle(
                   fontSize: 13,
@@ -311,6 +420,47 @@ class _SettingsToggle extends StatelessWidget {
             onChanged: (_) => item.onToggle(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TimePickerTile extends StatelessWidget {
+  final String label;
+  final String time; // "HH:MM"
+  final void Function(String) onChanged;
+  const _TimePickerTile({required this.label, required this.time, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = time.split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? 22,
+      minute: int.tryParse(parts[1]) ?? 0,
+    );
+    return GestureDetector(
+      onTap: () async {
+        final picked = await showTimePicker(context: context, initialTime: initial);
+        if (picked != null) {
+          final newTime =
+              '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+          onChanged(newTime);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          const SizedBox(width: 6),
+          Text(time, style: TextStyle(
+              fontSize: 15, fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary)),
+        ]),
       ),
     );
   }

@@ -14,6 +14,9 @@ import 'screens/medicine_screen.dart';
 import 'screens/sleep_analysis_screen.dart';
 import 'services/firestore_service.dart';
 import 'services/medicine_service.dart';
+import 'services/notification_service.dart';
+import 'services/reminder_service.dart';
+import 'models/reminder_settings.dart';
 import 'models/medicine.dart';
 import 'services/settings_service.dart';
 import 'models/event.dart';
@@ -50,6 +53,7 @@ Future<void> handleWidgetAction(Uri? uri, FirestoreService service) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService.instance.initialize();
   // Enable offline persistence with generous cache
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
@@ -152,6 +156,7 @@ class _MainAppState extends State<MainApp> {
   late final FirestoreService _service;
   late final SettingsService _settingsService;
   late final MedicineService _medicineService;
+  late final ReminderService _reminderService;
   TrackerSettings _settings = const TrackerSettings();
   bool _migrating = false;
   StreamSubscription? _settingsSub;
@@ -162,6 +167,8 @@ class _MainAppState extends State<MainApp> {
     _service = FirestoreService(familyId: widget.familyId);
     _settingsService = SettingsService(familyId: widget.familyId);
     _medicineService = MedicineService(familyId: widget.familyId);
+    _reminderService = ReminderService(familyId: widget.familyId);
+    _reminderService.loadSettings();
     _checkMigration();
     _handleWidgetLaunch();
     _listenSettings();
@@ -224,6 +231,7 @@ class _MainAppState extends State<MainApp> {
           service: _service,
           settings: _settings,
           medicineService: _medicineService,
+          reminderService: _reminderService,
           onTabChange: (tabId) {
             final tabs = _buildTabs();
             final idx = tabs.indexWhere((t) => t.id == tabId);
@@ -287,6 +295,7 @@ class _MainAppState extends State<MainApp> {
         settingsService: _settingsService,
         familyId: widget.familyId,
         onChangeFamilyId: widget.onChangeFamilyId,
+        reminderService: _reminderService,
       ),
     ));
 
@@ -339,6 +348,7 @@ class _MainAppState extends State<MainApp> {
   @override
   void dispose() {
     _settingsSub?.cancel();
+    _reminderService.dispose();
     super.dispose();
   }
 }

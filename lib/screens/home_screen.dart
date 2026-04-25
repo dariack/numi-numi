@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 import '../services/medicine_service.dart';
+import '../services/reminder_service.dart';
 import '../models/medicine.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
@@ -18,8 +19,9 @@ class HomeScreen extends StatefulWidget {
   final FirestoreService service;
   final TrackerSettings settings;
   final MedicineService? medicineService;
+  final ReminderService? reminderService;
   final void Function(String)? onTabChange;
-  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.onTabChange});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -77,6 +79,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _loading = false;
       });
       _widgetService.update();
+      // Reschedule reminders whenever event list changes (catches partner actions too)
+      widget.reminderService?.rescheduleAll(events);
     }, onError: (_) {
       if (mounted) setState(() => _loading = false);
     });
