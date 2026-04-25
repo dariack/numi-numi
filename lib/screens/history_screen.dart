@@ -489,12 +489,8 @@ class _EditEventSheetState extends State<_EditEventSheet> {
         expiresAt = BabyEvent.calcExpiration(_start, _storage);
       }
 
-      // Recalculate pumpId if pump fields changed
-      String? pumpId = widget.event.pumpId;
-      if (widget.event.type == EventType.pump) {
-        final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        pumpId = '${months[_start.month - 1]} ${_start.day} ${_start.hour.toString().padLeft(2, '0')}:${_start.minute.toString().padLeft(2, '0')}${_ml != null ? ' · ${_ml}ml' : ''}${_storage != null ? ' · $_storage' : ''}';
-      }
+      // Preserve existing pumpId — never overwrite it on edit
+      final String? pumpId = widget.event.pumpId;
 
       final updated = BabyEvent(
         id: widget.event.id, type: widget.event.type, startTime: _start,
