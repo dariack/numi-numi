@@ -147,6 +147,9 @@ class NotificationService {
           icon: '@mipmap/ic_launcher',
         ),
       ),
+      // ignore: deprecated_member_use
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
