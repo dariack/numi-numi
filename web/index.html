@@ -833,7 +833,14 @@ function inferNightSleep(events, dateStart, dateEnd){
 }
 
 function getNightWindow(baseDate){
-  // Night = 10pm on baseDate to 8am next day
+  // Full inference window: 18:00–08:00 (catches early bedtimes)
+  var d=new Date(baseDate);
+  var start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),18,0,0);
+  var end=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,8,0,0);
+  return {start:start,end:end};
+}
+function getStrictNightWindow(baseDate){
+  // Strict 22:00–08:00 for total sleep + wakings counting only
   var d=new Date(baseDate);
   var start=new Date(d.getFullYear(),d.getMonth(),d.getDate(),22,0,0);
   var end=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1,8,0,0);
@@ -912,18 +919,20 @@ function renderSleepAnalysis(){
   var lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-1));
   // If before 8am use night that started 2 nights ago
   if(now.getHours()<8)lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-2));
+  var lastNightStrict=getStrictNightWindow(lastNight.start);
   var lastNightGaps=inferNightSleep(allEvents,lastNight.start,lastNight.end);
   var lastNightEvents=allEvents.filter(function(e){return e.startTime>=lastNight.start&&e.startTime<=lastNight.end;});
+  var strictGaps=inferNightSleep(allEvents,lastNightStrict.start,lastNightStrict.end);
   
   if(!lastNightEvents.length && !lastNightGaps.length){
     h+='<div style="color:var(--muted);font-size:0.88rem;padding:12px 0">No data for last night yet.</div>';
   } else {
     var longestGap=lastNightGaps.length?Math.max.apply(null,lastNightGaps.map(function(g){return g.minutes;})):0;
-    var totalSleep=lastNightGaps.reduce(function(s,g){return s+g.minutes;},0);
-    // Wakings = gaps minus last one (morning wake-up doesn't count as a waking)
-    var wakings=Math.max(0,lastNightGaps.length-1);
+    // Total sleep and wakings use strict 22:00-08:00 window
+    var totalSleep=strictGaps.reduce(function(s,g){return s+g.minutes;},0);
+    var wakings=Math.max(0,strictGaps.length-1);
 
-    h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Night window: 22:00 – 08:00 · Sleep inferred from gaps &gt;'+(getSleepGapMinutes(getBabyAgeWeeks()))+'min between events</div>';
+    h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px">Longest stretch: 18:00–08:00 · Total sleep: 22:00–08:00 · Gaps &gt;'+(getSleepGapMinutes(getBabyAgeWeeks()))+'min inferred as sleep</div>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">';
     h+='<div class="stat" style="background:var(--card)"><div class="em">💤</div><div class="info"><div class="t" style="color:#818cf8">'+(longestGap?fmtHm(longestGap):'--')+'</div><div class="l">Longest stretch</div></div></div>';
     h+='<div class="stat" style="background:var(--card)"><div class="em">🌙</div><div class="info"><div class="t" style="color:#818cf8">'+(totalSleep?fmtHm(totalSleep):'--')+'</div><div class="l">Total sleep</div><div class="l2">22:00–08:00</div></div></div>';
@@ -931,7 +940,7 @@ function renderSleepAnalysis(){
     h+='</div>';
 
     // Timeline: fixed 20:00 → 08:00
-    var tlStart=new Date(lastNight.start.getFullYear(),lastNight.start.getMonth(),lastNight.start.getDate(),20,0,0).getTime();
+    var tlStart=new Date(lastNight.start.getFullYear(),lastNight.start.getMonth(),lastNight.start.getDate(),18,0,0).getTime();
     var tlEnd=lastNight.end.getTime();
     var tlRange=tlEnd-tlStart;
 
@@ -941,14 +950,17 @@ function renderSleepAnalysis(){
     });
 
     h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">';
-    h+='<div style="font-size:0.8rem;font-weight:600;color:var(--muted);margin-bottom:10px">NIGHT TIMELINE (20:00 – 08:00)</div>';
+    h+='<div style="font-size:0.8rem;font-weight:600;color:var(--muted);margin-bottom:10px">NIGHT TIMELINE (18:00 – 08:00)</div>';
 
-    // Night shade (10pm–8am)
-    var nightShadeLeft=(lastNight.start.getTime()-tlStart)/tlRange*100;
-    var nightShadeWidth=(lastNight.end.getTime()-lastNight.start.getTime())/tlRange*100;
+    // Two shaded regions: 18:00-22:00 (light) and 22:00-08:00 (darker)
+    var eveningShadeLeft=0;
+    var eveningShadeWidth=(lastNightStrict.start.getTime()-tlStart)/tlRange*100;
+    var nightShadeLeft=(lastNightStrict.start.getTime()-tlStart)/tlRange*100;
+    var nightShadeWidth=(lastNightStrict.end.getTime()-lastNightStrict.start.getTime())/tlRange*100;
 
     h+='<div id="tl-bar" style="position:relative;height:40px;background:rgba(99,102,241,0.04);border-radius:6px;">';
-    h+='<div style="position:absolute;top:0;bottom:0;left:'+nightShadeLeft+'%;width:'+nightShadeWidth+'%;background:rgba(99,102,241,0.1);border-radius:4px"></div>';
+    h+='<div style="position:absolute;top:0;bottom:0;left:'+eveningShadeLeft+'%;width:'+eveningShadeWidth+'%;background:rgba(99,102,241,0.05);border-radius:4px"></div>';
+    h+='<div style="position:absolute;top:0;bottom:0;left:'+nightShadeLeft+'%;width:'+nightShadeWidth+'%;background:rgba(99,102,241,0.12);border-radius:4px"></div>';
 
     // Sleep blocks — with title for hover tooltip
     lastNightGaps.forEach(function(g){
@@ -972,7 +984,7 @@ function renderSleepAnalysis(){
     // Build label set: fixed hours + event times, deduplicated by proximity
     var labelMs=[];
     // Fixed hour marks: 20,22,00,02,04,06,08
-    [20,22,0,2,4,6,8].forEach(function(hh){
+    [18,20,22,0,2,4,6,8].forEach(function(hh){
       var d=new Date(tlStart);
       d.setHours(hh,0,0,0);
       if(hh<20)d.setDate(d.getDate()+1); // next day for 00-08
@@ -1009,9 +1021,11 @@ function renderSleepAnalysis(){
   var nightData=[];
   for(var di=7;di>=1;di--){
     var nd=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-di));
+    var ndStrict=getStrictNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-di));
     var ng=inferNightSleep(allEvents,nd.start,nd.end);
+    var ngStrict=inferNightSleep(allEvents,ndStrict.start,ndStrict.end);
     var longest=ng.length?Math.max.apply(null,ng.map(function(g){return g.minutes;})):0;
-    var total=ng.reduce(function(s,g){return s+g.minutes;},0);
+    var total=ngStrict.reduce(function(s,g){return s+g.minutes;},0);
     var d=new Date(nd.start);
     nightData.push({label:pad(d.getDate())+'/'+pad(d.getMonth()+1),longest:longest,total:total});
   }

@@ -33,7 +33,15 @@ int _sleepGapMin(int? weeks) {
   return 90;
 }
 
+// Full inference window: 18:00–08:00 (catches early bedtimes)
 ({DateTime start, DateTime end}) _nightWindow(DateTime baseDate) {
+  final s = DateTime(baseDate.year, baseDate.month, baseDate.day, 18);
+  final e = DateTime(baseDate.year, baseDate.month, baseDate.day + 1, 8);
+  return (start: s, end: e);
+}
+
+// Strict night window: 22:00–08:00 (for total sleep / waking counts only)
+({DateTime start, DateTime end}) _strictNightWindow(DateTime baseDate) {
   final s = DateTime(baseDate.year, baseDate.month, baseDate.day, 22);
   final e = DateTime(baseDate.year, baseDate.month, baseDate.day + 1, 8);
   return (start: s, end: e);
@@ -178,6 +186,8 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     var lastNightBase = DateTime(now.year, now.month, now.day - 1);
     if (now.hour < 8) lastNightBase = DateTime(now.year, now.month, now.day - 2);
     final lastNight = _nightWindow(lastNightBase);
+    final lastNightStrict = _strictNightWindow(lastNightBase);
+    // Use full window (18:00–08:00) for gap inference so early bedtimes are captured
     final lastNightGaps = _inferNightSleep(actionEvents, lastNight.start, lastNight.end, gapMin);
     final lastNightEvents = actionEvents
         .where((e) => !e.startTime.isBefore(lastNight.start) && !e.startTime.isAfter(lastNight.end))
@@ -185,17 +195,23 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
 
     final longestStretch = lastNightGaps.isEmpty ? 0 :
         lastNightGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-    final totalSleep = lastNightGaps.fold(0, (s, g) => s + g.minutes);
-    final wakings = (lastNightGaps.length - 1).clamp(0, 99);
+    // Total sleep and wakings only count gaps within the strict 22:00–08:00 window
+    final strictGaps = _inferNightSleep(actionEvents, lastNightStrict.start, lastNightStrict.end, gapMin);
+    final totalSleep = strictGaps.fold(0, (s, g) => s + g.minutes);
+    final wakings = (strictGaps.length - 1).clamp(0, 99);
 
     // 7-day trend
     final nightData = <({String label, int longest, int total})>[];
     for (int di = 7; di >= 1; di--) {
       final base = DateTime(now.year, now.month, now.day - di);
       final win = _nightWindow(base);
+      final strictWin = _strictNightWindow(base);
+      // Longest stretch: full window (catches early bedtimes)
       final gaps = _inferNightSleep(actionEvents, win.start, win.end, gapMin);
       final longest = gaps.isEmpty ? 0 : gaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-      final total = gaps.fold(0, (s, g) => s + g.minutes);
+      // Total sleep: strict 22:00-08:00 window
+      final strictGaps7 = _inferNightSleep(actionEvents, strictWin.start, strictWin.end, gapMin);
+      final total = strictGaps7.fold(0, (s, g) => s + g.minutes);
       nightData.add((
         label: '${base.day.toString().padLeft(2, '0')}/${base.month.toString().padLeft(2, '0')}',
         longest: longest,
@@ -378,8 +394,9 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
             // Timeline
             _NightTimeline(
               cardBg: cardBg,
-              nightStart: lastNight.start,
-              nightEnd: lastNight.end,
+              nightStart: lastNight.start,       // 18:00
+              nightEnd: lastNight.end,            // 08:00
+              strictStart: lastNightStrict.start, // 22:00 — shown as darker shade
               events: lastNightEvents,
               gaps: lastNightGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
             ),
@@ -657,15 +674,17 @@ class _Blurb extends StatelessWidget {
 class _NightTimeline extends StatelessWidget {
   final Color cardBg;
   final DateTime nightStart, nightEnd;
+  final DateTime? strictStart; // 22:00 — shown as distinct shade
   final List<BabyEvent> events;
   final List<({DateTime start, DateTime end, int minutes})> gaps;
   const _NightTimeline({required this.cardBg, required this.nightStart,
-      required this.nightEnd, required this.events, required this.gaps});
+      required this.nightEnd, this.strictStart, required this.events, required this.gaps});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final tlStart = DateTime(nightStart.year, nightStart.month, nightStart.day, 20).millisecondsSinceEpoch.toDouble();
+    // Timeline starts at 18:00 to capture early bedtimes
+    final tlStart = DateTime(nightStart.year, nightStart.month, nightStart.day, 18).millisecondsSinceEpoch.toDouble();
     final tlEnd = nightEnd.millisecondsSinceEpoch.toDouble();
     final tlRange = tlEnd - tlStart;
 
@@ -680,7 +699,7 @@ class _NightTimeline extends StatelessWidget {
           border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
       padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('NIGHT TIMELINE (20:00–08:00)',
+        Text('NIGHT TIMELINE (18:00–08:00)',
             style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
                 color: Colors.grey.shade500, letterSpacing: 0.5)),
         const SizedBox(height: 8),
@@ -692,14 +711,23 @@ class _NightTimeline extends StatelessWidget {
               // Background
               Container(decoration: BoxDecoration(
                   color: _kIndigo.withOpacity(0.04), borderRadius: BorderRadius.circular(6))),
-              // Night shade (22:00–08:00)
+              // Evening shade (18:00–22:00) — lighter
               Positioned(
-                left: w * ((nightStart.millisecondsSinceEpoch - tlStart) / tlRange),
-                width: w * ((nightEnd.millisecondsSinceEpoch - nightStart.millisecondsSinceEpoch) / tlRange),
+                left: 0,
+                width: w * ((nightStart.millisecondsSinceEpoch - tlStart) / tlRange),
                 top: 0, bottom: 0,
                 child: Container(decoration: BoxDecoration(
-                    color: _kIndigo.withOpacity(0.1), borderRadius: BorderRadius.circular(4))),
+                    color: _kIndigo.withOpacity(0.05), borderRadius: BorderRadius.circular(4))),
               ),
+              // Night shade (22:00–08:00) — darker
+              if (strictStart != null)
+                Positioned(
+                  left: w * ((strictStart!.millisecondsSinceEpoch - tlStart) / tlRange),
+                  width: w * ((nightEnd.millisecondsSinceEpoch - strictStart!.millisecondsSinceEpoch) / tlRange),
+                  top: 0, bottom: 0,
+                  child: Container(decoration: BoxDecoration(
+                      color: _kIndigo.withOpacity(0.12), borderRadius: BorderRadius.circular(4))),
+                ),
               // Sleep blocks
               ...gaps.map((g) {
                 final left = w * ((g.start.millisecondsSinceEpoch - tlStart) / tlRange);
@@ -741,7 +769,7 @@ class _NightTimeline extends StatelessWidget {
   List<Widget> _buildLabels(double tlStart, double tlEnd, double tlRange, double w, List<BabyEvent> evs) {
     final labelItems = <({double ms, bool isEvent})>[];
     // Fixed hour marks: 20,22,0,2,4,6,8
-    for (final h in [20, 22, 0, 2, 4, 6, 8]) {
+    for (final h in [18, 20, 22, 0, 2, 4, 6, 8]) {
       final d = DateTime.fromMillisecondsSinceEpoch(tlStart.toInt())
           .copyWith(hour: h, minute: 0, second: 0, millisecond: 0);
       final ms = (h < 20 ? d.add(const Duration(days: 1)) : d).millisecondsSinceEpoch.toDouble();
