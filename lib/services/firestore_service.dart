@@ -47,6 +47,14 @@ class FirestoreService {
     _ref.doc(event.id).set(event.toFirestore());
   }
 
+  /// Resume a previously ended event — clears endTime and duration.
+  Future<void> resumeEvent(String eventId) async {
+    await _ref.doc(eventId).update({
+      'endTime': FieldValue.delete(),
+      'duration': FieldValue.delete(),
+    });
+  }
+
   Future<void> deleteEvent(String eventId) async {
     _ref.doc(eventId).delete();
   }

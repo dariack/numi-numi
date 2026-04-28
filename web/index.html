@@ -274,7 +274,9 @@ function buildHomeStatsHtml(){
       if(f.duration)detail+=' · '+fmtMin(f.duration);else if(f.mlFed)detail+=' · '+f.mlFed+'ml';
       else if(f.source==='pump'&&f.linkedPumps){try{var tot=JSON.parse(f.linkedPumps).reduce(function(s2,x){return s2+x.ml},0);if(tot)detail+=' · '+tot+'ml';}catch(err){}}
       if(f.side)detail+=' · '+f.side;if(!f.endTime&&!f.duration&&f.source!=='pump')detail+=' · ongoing';
-      h+='<div class="l">'+detail+'</div>';});}
+      var canResume=f.endTime&&(Date.now()-f.endTime.getTime())/60000<=5;
+      h+='<div class="l" style="display:flex;align-items:baseline;gap:8px">'+detail+(canResume?' <span onclick="resumeEvent(\''+f.id+'\')" style="font-size:0.75rem;color:#52525b;font-style:italic;cursor:pointer">resume</span>':'')+'</div>';});
+    }
     if(s.recSide)h+='<div style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:0.85rem;padding:4px 10px;border-radius:8px;margin-top:4px">🤱 Next: '+s.recSide.toUpperCase()+'</div><div class="l2">'+s.recReason+'</div>';
     h+='</div></div>';}
   if(cfg.trackDiaper){
@@ -346,6 +348,12 @@ function medRow(g){
   var sub=g.scheduledTime?'sched: '+g.scheduledTime:'given';
   return '<tr><td class="td-time">'+time+'</td><td><div class="td-event">'+label+'</div><div class="td-props">'+sub+'</div></td>'
     +'<td class="td-acts"><button class="del" onclick="delMedGiven(\''+g.id+'\')" title="Delete">🗑</button></td></tr>';
+}
+function resumeEvent(id){
+  db.collection('families').doc(fid).collection('events').doc(id).update({
+    endTime: firebase.firestore.FieldValue.delete(),
+    duration: firebase.firestore.FieldValue.delete()
+  }).then(function(){showSnack('Resumed');});
 }
 function delMedGiven(id){
   if(confirm('Delete this medicine record?'))

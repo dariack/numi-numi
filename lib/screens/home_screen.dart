@@ -290,7 +290,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             line1: lastSleep != null
                                 ? 'Last: ${_ago(lastSleep.endTime ?? lastSleep.startTime)} ago'
                                 : 'No data',
-                            onTap: () => widget.onTabChange?.call('sleep')),
+                            onTap: () => widget.onTabChange?.call('sleep'),
+                            onResume: lastSleep != null &&
+                                    !lastSleep.isOngoing &&
+                                    lastSleep.endTime != null &&
+                                    DateTime.now().difference(lastSleep.endTime!).inMinutes <= 5
+                                ? () => widget.service.resumeEvent(lastSleep.id)
+                                : null),
                         const SizedBox(height: 8),
                       ],
 
@@ -301,6 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           recommendedSide: recommendedSide,
                           recommendationReason: recommendationReason,
                           onTap: () => widget.onTabChange?.call('feed'),
+                          onResume: (f) => widget.service.resumeEvent(f.id),
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -415,12 +422,14 @@ class _FeedStatCard extends StatelessWidget {
   final String? recommendedSide;
   final String? recommendationReason;
   final VoidCallback? onTap;
+  final void Function(BabyEvent)? onResume;
   const _FeedStatCard(
       {required this.cardBg,
       required this.recentFeeds,
       this.recommendedSide,
       this.recommendationReason,
-      this.onTap});
+      this.onTap,
+      this.onResume});
 
   String _fmt(Duration? d) {
     if (d == null) return '--';
@@ -482,9 +491,30 @@ class _FeedStatCard extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 13, color: Colors.grey.shade400))
               else
-                ...recentFeeds.map((f) => Text(_feedDetail(f),
-                    style: TextStyle(
-                        fontSize: 13, color: Colors.grey.shade400))),
+                ...recentFeeds.map((f) {
+                  final endT = f.endTime ?? f.startTime;
+                  final canResume = !f.isOngoing &&
+                      f.endTime != null &&
+                      DateTime.now().difference(endT).inMinutes <= 5 &&
+                      (f.type == EventType.feed);
+                  return Row(children: [
+                    Expanded(child: Text(_feedDetail(f),
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade400))),
+                    if (canResume)
+                      GestureDetector(
+                        onTap: () => onResume?.call(f),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text('resume',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontStyle: FontStyle.italic,
+                              )),
+                        ),
+                      ),
+                  ]);
+                }),
               if (recommendedSide != null) ...[
                 const SizedBox(height: 6),
                 Container(
@@ -519,6 +549,7 @@ class _MiniStat extends StatelessWidget {
   final String? line2;
   final String? line3;
   final VoidCallback? onTap;
+  final VoidCallback? onResume;
   const _MiniStat(
       {required this.cardBg,
       required this.emoji,
@@ -526,7 +557,8 @@ class _MiniStat extends StatelessWidget {
       required this.line1,
       this.line2,
       this.line3,
-      this.onTap});
+      this.onTap,
+      this.onResume});
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -562,6 +594,19 @@ class _MiniStat extends StatelessWidget {
                 Text(line3!,
                     style: TextStyle(
                         fontSize: 12, color: Colors.grey.shade500)),
+              if (onResume != null)
+                GestureDetector(
+                  onTap: onResume,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('resume',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontStyle: FontStyle.italic,
+                        )),
+                  ),
+                ),
             ])),
       ]),
     ));
