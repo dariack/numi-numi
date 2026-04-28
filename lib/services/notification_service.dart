@@ -1,5 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_native_timezone/flutter_native_timezone.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import '../models/event.dart';
@@ -30,7 +30,7 @@ class NotificationService {
     tz_data.initializeTimeZones();
     // Set local timezone so scheduled times are correct
     try {
-      final tzName = await FlutterNativeTimezone.getLocalTimezone();
+      final tzName = await FlutterTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(tzName));
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('UTC'));
