@@ -923,10 +923,12 @@ function renderSleepAnalysis(){
   });
 
   // ── Section 1: Last Night ──────────────────────────────────────────
-  h+='<div class="section-label">🌙 Last Night</div>';
-  var lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-1));
-  // If before 8am use night that started 2 nights ago
-  if(now.getHours()<8)lastNight=getNightWindow(new Date(now.getFullYear(),now.getMonth(),now.getDate()-2));
+  var baseOffset=now.getHours()<8?2:1;
+  var lastNightBase=new Date(now.getFullYear(),now.getMonth(),now.getDate()-baseOffset);
+  var dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var lastNightLabel=dayNames[lastNightBase.getDay()===0?6:lastNightBase.getDay()-1]+' '+pad(lastNightBase.getDate())+'/'+pad(lastNightBase.getMonth()+1);
+  h+='<div class="section-label">🌙 Last Night · '+lastNightLabel+'</div>';
+  var lastNight=getNightWindow(lastNightBase);
   var lastNightStrict=getStrictNightWindow(lastNight.start);
   var lastNightGaps=inferNightSleep(allEvents,lastNight.start,lastNight.end);
   var lastNightEvents=allEvents.filter(function(e){return e.startTime>=lastNight.start&&e.startTime<=lastNight.end;});
@@ -1022,6 +1024,61 @@ function renderSleepAnalysis(){
     });
     h+='</div>';
     h+='</div>';
+  }
+
+  // ── Previous Nights (expandable) ─────────────────────────────────────
+  h+='<div class="section-label" style="margin-top:4px">🌙 Previous Nights</div>';
+  for(var pni=2;pni<=7;pni++){
+    var pnBase=new Date(now.getFullYear(),now.getMonth(),now.getDate()-(now.getHours()<8?pni+1:pni));
+    var pnLabel=dayNames[pnBase.getDay()===0?6:pnBase.getDay()-1]+' '+pad(pnBase.getDate())+'/'+pad(pnBase.getMonth()+1);
+    var pnNight=getNightWindow(pnBase);
+    var pnStrict=getStrictNightWindow(pnBase);
+    var pnGaps=inferNightSleep(allEvents,pnNight.start,pnNight.end);
+    var pnStrictGaps=inferNightSleep(allEvents,pnStrict.start,pnStrict.end);
+    var pnLongest=pnGaps.length?Math.max.apply(null,pnGaps.map(function(g){return g.minutes;})):0;
+    var pnTotal=pnStrictGaps.reduce(function(s,g){return s+g.minutes;},0);
+    var pnWakings=Math.max(0,pnStrictGaps.length-1);
+    var pnEvents=allEvents.filter(function(e){return e.startTime>=pnNight.start&&e.startTime<=pnNight.end;});
+    var pnId='pn-'+pni;
+    // Collapsed summary row — click to expand
+    h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">';
+    h+='<div onclick="togglePrevNight(\''+pnId+'\')" style="display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer">';
+    h+='<span style="font-size:0.85rem;font-weight:600;color:var(--text);min-width:90px">'+pnLabel+'</span>';
+    h+='<span style="font-size:0.82rem;color:#818cf8;font-weight:600">'+(pnLongest?fmtHm(pnLongest):'--')+'</span>';
+    h+='<span style="font-size:0.75rem;color:var(--muted)">longest</span>';
+    h+='<span style="font-size:0.82rem;color:#2dd4bf;font-weight:600;margin-left:8px">'+(pnTotal?fmtHm(pnTotal):'--')+'</span>';
+    h+='<span style="font-size:0.75rem;color:var(--muted)">total</span>';
+    h+='<span style="font-size:0.75rem;color:var(--muted);margin-left:8px">'+pnWakings+' wakings</span>';
+    h+='<span style="margin-left:auto;color:var(--muted);font-size:0.8rem" id="'+pnId+'-chevron">▸</span>';
+    h+='</div>';
+    // Expandable timeline (hidden by default)
+    h+='<div id="'+pnId+'" style="display:none;padding:0 14px 12px">';
+    if(pnEvents.length||pnGaps.length){
+      // Mini timeline
+      var pnTlStart=new Date(pnNight.start.getFullYear(),pnNight.start.getMonth(),pnNight.start.getDate(),18,0,0).getTime();
+      var pnTlEnd=pnNight.end.getTime();
+      var pnTlRange=pnTlEnd-pnTlStart;
+      var pnNightShadeLeft=(pnStrict.start.getTime()-pnTlStart)/pnTlRange*100;
+      var pnNightShadeWidth=(pnStrict.end.getTime()-pnStrict.start.getTime())/pnTlRange*100;
+      h+='<div style="position:relative;height:36px;background:rgba(99,102,241,0.04);border-radius:6px;">';
+      h+='<div style="position:absolute;top:0;bottom:0;left:'+pnNightShadeLeft+'%;width:'+pnNightShadeWidth+'%;background:rgba(99,102,241,0.12);border-radius:4px"></div>';
+      pnGaps.forEach(function(g){
+        var left=Math.max(0,(g.start.getTime()-pnTlStart)/pnTlRange*100);
+        var width=(g.minutes*60000)/pnTlRange*100;
+        h+='<div title="'+fmtHm(g.minutes)+' sleep" style="position:absolute;top:4px;bottom:4px;left:'+left+'%;width:'+Math.min(width,100-left)+'%;background:rgba(99,102,241,0.6);border-radius:3px;cursor:default"></div>';
+      });
+      pnEvents.forEach(function(e){
+        var left=(e.startTime.getTime()-pnTlStart)/pnTlRange*100;
+        if(left<0||left>100)return;
+        var emoji=e.type==='feed'?'🍼':e.type==='diaper'?'🧷':'🥛';
+        h+='<div style="position:absolute;top:50%;transform:translate(-50%,-50%);left:'+left+'%;font-size:13px;pointer-events:none">'+emoji+'</div>';
+      });
+      h+='</div>';
+      h+='<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--muted);margin-top:3px"><span>18:00</span><span>22:00</span><span>02:00</span><span>05:00</span><span>08:00</span></div>';
+    } else {
+      h+='<div style="color:var(--muted);font-size:0.82rem">No data for this night</div>';
+    }
+    h+='</div></div>';
   }
 
   // ── Section 2: 7-Day Trend ─────────────────────────────────────────
@@ -1330,6 +1387,15 @@ function renderSleepAnalysis(){
       }
     });
   }
+}
+
+function togglePrevNight(id){
+  var el=document.getElementById(id);
+  var ch=document.getElementById(id+'-chevron');
+  if(!el)return;
+  var open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  if(ch)ch.textContent=open?'▾':'▸';
 }
 
 function renderSettings(){

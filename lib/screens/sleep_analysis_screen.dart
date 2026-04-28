@@ -70,6 +70,11 @@ List<({DateTime start, DateTime end, int minutes})> _inferNightSleep(
   return gaps;
 }
 
+String _fmtDate(DateTime d) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return '\${days[d.weekday - 1]} \${d.day.toString().padLeft(2, '0')}/\${d.month.toString().padLeft(2, '0')}';
+}
+
 String _fmtHm(int mins) {
   if (mins < 60) return '${mins}m';
   final h = mins ~/ 60;
@@ -145,6 +150,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
   bool _loading = true;
   DateTime? _birthDate;
   List<BabyEvent> _allEvents = [];
+  int _selectedNightOffset = 1; // 1 = last night, 2 = 2 nights ago, etc.
 
   @override
   void initState() {
@@ -183,8 +189,9 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     final feedEvents = _allEvents.where((e) => e.type == EventType.feed).toList();
 
     // Determine last night
-    var lastNightBase = DateTime(now.year, now.month, now.day - 1);
-    if (now.hour < 8) lastNightBase = DateTime(now.year, now.month, now.day - 2);
+    // Adjust for early morning — if before 8am, yesterday hasn't ended yet
+    final baseOffset = now.hour < 8 ? _selectedNightOffset + 1 : _selectedNightOffset;
+    var lastNightBase = DateTime(now.year, now.month, now.day - baseOffset);
     final lastNight = _nightWindow(lastNightBase);
     final lastNightStrict = _strictNightWindow(lastNightBase);
     // Use full window (18:00–08:00) for gap inference so early bedtimes are captured
@@ -374,12 +381,43 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
               ]),
             ),
 
-          // ── 1. Last Night ────────────────────────────────────────
-          _SectionLabel('🌙 Last Night (22:00–08:00)'),
+          // ── 1. Night Detail (swipeable) ──────────────────────────
+          // Header row with date + prev/next navigation
+          Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('🌙 Night Detail', style: TextStyle(fontSize: 12,
+                  fontWeight: FontWeight.w700, color: Colors.grey.shade500, letterSpacing: 0.5)),
+              Text(
+                _selectedNightOffset == 1
+                    ? 'Last night · ${_fmtDate(lastNightBase)}'
+                    : '${_selectedNightOffset} nights ago · ${_fmtDate(lastNightBase)}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+            ])),
+            // Subtle prev/next arrows
+            GestureDetector(
+              onTap: _selectedNightOffset < 7
+                  ? () => setState(() { _selectedNightOffset++; })
+                  : null,
+              child: Padding(padding: const EdgeInsets.all(8),
+                child: Icon(Icons.chevron_left,
+                  color: _selectedNightOffset < 7 ? Colors.grey.shade500 : Colors.grey.shade800,
+                  size: 20)),
+            ),
+            GestureDetector(
+              onTap: _selectedNightOffset > 1
+                  ? () => setState(() { _selectedNightOffset--; })
+                  : null,
+              child: Padding(padding: const EdgeInsets.all(8),
+                child: Icon(Icons.chevron_right,
+                  color: _selectedNightOffset > 1 ? Colors.grey.shade500 : Colors.grey.shade800,
+                  size: 20)),
+            ),
+          ]),
+          const SizedBox(height: 8),
           if (lastNightEvents.isEmpty && lastNightGaps.isEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: Text('No data for last night yet.',
+              child: Text('No data for this night.',
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
             )
           else ...[
@@ -391,17 +429,16 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
               Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$wakings', label: 'Wakings', color: _kIndigo)),
             ]),
             const SizedBox(height: 10),
-            // Timeline
             _NightTimeline(
               cardBg: cardBg,
-              nightStart: lastNight.start,       // 18:00
-              nightEnd: lastNight.end,            // 08:00
-              strictStart: lastNightStrict.start, // 22:00 — shown as darker shade
+              nightStart: lastNight.start,
+              nightEnd: lastNight.end,
+              strictStart: lastNightStrict.start,
               events: lastNightEvents,
               gaps: lastNightGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
             ),
             const SizedBox(height: 8),
-            _Blurb('Sleep inferred from gaps >${gapMin}min between events.'),
+            _Blurb('Sleep inferred from gaps >\${gapMin}min · swipe ‹ › to compare nights'),
             const SizedBox(height: 16),
           ],
 
