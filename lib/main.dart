@@ -168,7 +168,10 @@ class _MainAppState extends State<MainApp> {
     _settingsService = SettingsService(familyId: widget.familyId);
     _medicineService = MedicineService(familyId: widget.familyId);
     _reminderService = ReminderService(familyId: widget.familyId);
-    _reminderService.loadSettings();
+    _reminderService.loadSettings().then((_) {
+      // Once settings loaded, start listening for changes from partner
+      _reminderService.startListening(eventsStream: _service.eventsStream());
+    });
     _checkMigration();
     _handleWidgetLaunch();
     _listenSettings();

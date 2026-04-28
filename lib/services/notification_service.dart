@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_native_timezone/flutter_native_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import '../models/event.dart';
@@ -27,6 +28,13 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
     tz_data.initializeTimeZones();
+    // Set local timezone so scheduled times are correct
+    try {
+      final tzName = await FlutterNativeTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(tzName));
+    } catch (_) {
+      tz.setLocalLocation(tz.getLocation('UTC'));
+    }
 
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
@@ -101,25 +109,22 @@ class NotificationService {
   /// Call this whenever a new event arrives (from either parent).
   Future<void> rescheduleFromEvents(
       List<BabyEvent> recentEvents, ReminderSettings settings) async {
+    if (recentEvents.isEmpty) return;
     final sorted = [...recentEvents]..sort((a, b) => b.startTime.compareTo(a.startTime));
 
-    // Last feed
-    final lastFeed = sorted.firstWhere(
-        (e) => e.type == EventType.feed,
-        orElse: () => sorted.first);
-    if (lastFeed.type == EventType.feed) {
-      final feedEnd = lastFeed.endTime ?? lastFeed.startTime;
+    // Last feed — safely find, null if none
+    final feeds = sorted.where((e) => e.type == EventType.feed).toList();
+    if (feeds.isNotEmpty) {
+      final feedEnd = feeds.first.endTime ?? feeds.first.startTime;
       await scheduleFeedReminder(feedEnd, settings);
     } else {
       await cancelFeedReminder();
     }
 
     // Last diaper
-    final lastDiaper = sorted.firstWhere(
-        (e) => e.type == EventType.diaper,
-        orElse: () => sorted.first);
-    if (lastDiaper.type == EventType.diaper) {
-      await scheduleDiaperReminder(lastDiaper.startTime, settings);
+    final diapers = sorted.where((e) => e.type == EventType.diaper).toList();
+    if (diapers.isNotEmpty) {
+      await scheduleDiaperReminder(diapers.first.startTime, settings);
     } else {
       await cancelDiaperReminder();
     }

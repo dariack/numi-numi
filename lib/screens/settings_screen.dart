@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import '../services/reminder_service.dart';
+import '../services/notification_service.dart';
 import '../models/reminder_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -46,6 +47,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _updateReminders(ReminderSettings updated) async {
     setState(() => _reminders = updated);
     await widget.reminderService?.updateSettings(updated);
+  }
+
+  Future<void> _showPendingDebug() async {
+    final pending = await NotificationService.instance.getPending();
+    if (!mounted) return;
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Scheduled Notifications'),
+      content: Text(pending.isEmpty
+          ? 'None scheduled'
+          : pending.map((p) => '#${p.id}: ${p.title}
+${p.body}').join('
+
+')),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+    ));
   }
 
   Widget _buildReminderSection(BuildContext context) {
@@ -323,9 +339,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
           ]),
           const SizedBox(height: 24),
-          Text('Reminders',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500, letterSpacing: 0.5)),
+          Row(children: [
+            Text('Reminders',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade500, letterSpacing: 0.5)),
+            const Spacer(),
+            GestureDetector(
+              onTap: _showPendingDebug,
+              child: Text('check scheduled',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic))),
+          ]),
           const SizedBox(height: 8),
           _buildReminderSection(context),
           const SizedBox(height: 24),
