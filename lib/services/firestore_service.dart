@@ -158,6 +158,26 @@ class FirestoreService {
     return all;
   }
 
+  Future<void> updateDeviceName(String deviceId, String name) async {
+    try {
+      await _db.collection('families').doc(familyId)
+          .collection('devices').doc(deviceId)
+          .set({'name': name, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  Future<Map<String, String>> getDeviceNames() async {
+    try {
+      final snap = await _db.collection('families').doc(familyId).collection('devices').get();
+      final map = <String, String>{};
+      for (final doc in snap.docs) {
+        final name = doc.data()['name'] as String?;
+        if (name != null && name.isNotEmpty) map[doc.id] = name;
+      }
+      return map;
+    } catch (_) { return {}; }
+  }
+
   Future<DateTime?> getBirthDate() async {
     try {
       final doc = await _db.collection('families').doc(familyId)

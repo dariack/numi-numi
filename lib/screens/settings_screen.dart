@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/reminder_service.dart';
 import '../services/notification_service.dart';
 import '../models/reminder_settings.dart';
@@ -29,6 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _widgetSlots = ['feed', 'diaper'];
   DateTime? _birthDate;
   ReminderSettings _reminders = const ReminderSettings();
+  final _nameCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -36,12 +38,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final s = await widget.settingsService.get();
     final slots = await WidgetService.getWidgetSlots();
     final bd = await widget.settingsService.getBirthDate();
     final reminders = await widget.reminderService?.loadSettings() ?? const ReminderSettings();
-    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _birthDate = bd; _reminders = reminders; _loading = false; });
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('caregiver_name') ?? '';
+    if (mounted) setState(() { _settings = s; _widgetSlots = slots; _birthDate = bd; _reminders = reminders; _nameCtrl.text = name; _loading = false; });
   }
 
   Future<void> _updateReminders(ReminderSettings updated) async {
@@ -375,7 +385,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Code: ${widget.familyId}',
+                // Caregiver name
+                TextField(
+                  controller: _nameCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Your name',
+                    hintText: 'e.g. Daria, Mom, Nanny',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onSubmitted: (v) async {
+                    final p = await SharedPreferences.getInstance();
+                    await p.setString('caregiver_name', v.trim());
+                  },
+                  onEditingComplete: () async {
+                    final p = await SharedPreferences.getInstance();
+                    await p.setString('caregiver_name', _nameCtrl.text.trim());
+                  },
+                ),
+                const SizedBox(height: 12),
+                Text('Code: \${widget.familyId}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 15)),
                 const SizedBox(height: 8),

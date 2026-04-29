@@ -33,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _myDeviceId; // to detect partner events
   BabyEvent? _partnerLastEvent; // most recent event NOT by this device
   DateTime? _partnerEventSeen; // when we first saw it (for fade-out)
+  final Map<String, String> _deviceNames = {}; // deviceId -> caregiver name
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
   bool _loading = true;
@@ -60,10 +61,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
     if (id == null) {
-      id = 'device_${DateTime.now().millisecondsSinceEpoch}';
+      id = 'device_\${DateTime.now().millisecondsSinceEpoch}';
       await prefs.setString('device_id', id);
     }
-    if (mounted) setState(() => _myDeviceId = id);
+    // Register this device's name in Firestore so partner can see it
+    final name = prefs.getString('caregiver_name') ?? '';
+    if (name.isNotEmpty) {
+      widget.service.updateDeviceName(id!, name);
+    }
+    // Load all device names for this family
+    final names = await widget.service.getDeviceNames();
+    if (mounted) setState(() { _myDeviceId = id; _deviceNames.addAll(names); });
   }
 
   void _checkPartnerActivity(List<BabyEvent> events) {
@@ -90,33 +98,72 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Returns a contextual suggestion or null
-  String? _getSuggestion(Map<String, dynamic> stats) {
+  // Returns list of contextual suggestions
+  List<String> _getSuggestions(Map<String, dynamic> stats) {
     final now = DateTime.now();
-    final lastFeed = stats['lastFeed'] as BabyEvent?;
-    final lastDiaper = stats['lastDiaper'] as BabyEvent?;
+    final suggestions = <String>[];
 
+    // Feed suggestion
+    final lastFeed = stats['lastFeed'] as BabyEvent?;
     if (lastFeed != null) {
       final feedEnd = lastFeed.endTime ?? lastFeed.startTime;
       final feedMins = now.difference(feedEnd).inMinutes;
-      // Show suggestion at 80% of typical interval
       final avgGap = (stats['avgFeedGapMin'] as num?)?.toInt() ?? 180;
       if (feedMins >= (avgGap * 0.8).round() && feedMins < avgGap * 1.5) {
-        final h = feedMins ~/ 60;
-        final m = feedMins % 60;
-        final timeStr = h > 0 ? '${h}h ${m}m' : '${m}m';
-        return '⏰ $timeStr since last feed — usually every ${avgGap ~/ 60}h${avgGap % 60 > 0 ? " ${avgGap % 60}m" : ""}';
+        final h = feedMins ~/ 60; final m = feedMins % 60;
+        suggestions.add('⏰ ${h > 0 ? "${h}h " : ""}${m}m since last feed — usually every ${avgGap ~/ 60}h');
       }
     }
+
+    // Diaper suggestion
+    final lastDiaper = stats['lastDiaper'] as BabyEvent?;
     if (lastDiaper != null) {
       final diaperMins = now.difference(lastDiaper.startTime).inMinutes;
-      if (diaperMins >= 200) {
-        final h = diaperMins ~/ 60;
-        final m = diaperMins % 60;
-        return '🧷 ${h}h ${m > 0 ? "${m}m " : ""}since last diaper change';
+      if (diaperMins >= 180) {
+        final h = diaperMins ~/ 60; final m = diaperMins % 60;
+        suggestions.add('🧷 ${h}h ${m > 0 ? "${m}m " : ""}since last diaper — time to check?');
       }
     }
-    return null;
+
+    // Pump expiry warnings
+    final stock = stats['pumpStock'] as Map<String, List<Map<String, dynamic>>>?;
+    if (stock != null) {
+      // Room temp: warn 1h before expiry
+      for (final item in (stock['room'] ?? [])) {
+        final exp = item['expires'] as DateTime?;
+        if (exp != null) {
+          final minsLeft = exp.difference(now).inMinutes;
+          if (minsLeft > 0 && minsLeft <= 60) {
+            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
+            suggestions.add('⚠️ Room temp milk $id expires in ${minsLeft}m');
+          }
+        }
+      }
+      // Fridge: warn 24h before
+      for (final item in (stock['fridge'] ?? [])) {
+        final exp = item['expires'] as DateTime?;
+        if (exp != null) {
+          final hoursLeft = exp.difference(now).inHours;
+          if (hoursLeft > 0 && hoursLeft <= 24) {
+            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
+            suggestions.add('🧊 Fridge milk $id expires in ${hoursLeft}h — use soon');
+          }
+        }
+      }
+      // Freezer: warn 1 month (30 days) before
+      for (final item in (stock['freezer'] ?? [])) {
+        final exp = item['expires'] as DateTime?;
+        if (exp != null) {
+          final daysLeft = exp.difference(now).inDays;
+          if (daysLeft > 0 && daysLeft <= 30) {
+            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
+            suggestions.add('🧊 Freezer milk $id expires in ${daysLeft}d');
+          }
+        }
+      }
+    }
+
+    return suggestions;
   }
 
   void _subscribeMedicines() {
@@ -258,6 +305,108 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) => _events);
       },
       child: ListView(padding: EdgeInsets.zero, children: [
+        // ── Partner activity strip ────────────────────────────
+        if (_partnerLastEvent != null) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: AnimatedOpacity(
+              opacity: _partnerEventSeen != null &&
+                  DateTime.now().difference(_partnerEventSeen!).inMinutes >= 10 ? 0 : 1,
+              duration: const Duration(seconds: 2),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: Colors.grey.shade800.withOpacity(0.5),
+                ),
+                child: Row(children: [
+                  const Text('🤝', style: TextStyle(fontSize: 14)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    '${_deviceNames[_partnerLastEvent!.createdBy] ?? "Partner"} logged ${_partnerLastEvent!.displayName} ${_timeAgo(_partnerLastEvent!.startTime)}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                  )),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        // ── Log buttons — big 2×2 grid ──────────────────────────
+        Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("What's happening?",
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade500,
+                          letterSpacing: 0.5)),
+                  const SizedBox(height: 12),
+                  // 2×2 grid — always fill width evenly
+                  GridView.count(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 2.4,
+                    children: [
+                      if (cfg.trackFeed)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
+                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
+                            color: kFeedColor,
+                            active: ongoing?.type == EventType.feed,
+                            onTap: () => _openLog(EventType.feed)),
+                      if (cfg.trackDiaper)
+                        _LogBtn(
+                            emoji: '🧷',
+                            label: 'Diaper',
+                            color: kDiaperColor,
+                            onTap: () => _openLog(EventType.diaper)),
+                      if (cfg.trackSleep)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
+                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
+                            color: kSleepColor,
+                            active: ongoing?.type == EventType.sleep,
+                            onTap: () => _openLog(EventType.sleep)),
+                      if (cfg.trackPump)
+                        _LogBtn(
+                            emoji: '🥛',
+                            label: 'Pump',
+                            color: kPumpColor,
+                            onTap: () => _openLog(EventType.pump)),
+                    ],
+                  ),
+                ])),
+
+        // ── Contextual suggestion strip ──────────────────────────
+        Builder(builder: (context) {
+          final suggestions = _getSuggestions(_stats);
+          if (suggestions.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(children: suggestions.map((s) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
+                border: Border.all(color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.3) : kFeedColor.withOpacity(0.2)),
+              ),
+              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            )).toList()),
+          );
+        }),
+
+      ]),
+
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -405,107 +554,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                       ],
                     ]))),
-
-        // ── Partner activity strip ────────────────────────────
-        if (_partnerLastEvent != null) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: AnimatedOpacity(
-              opacity: _partnerEventSeen != null &&
-                  DateTime.now().difference(_partnerEventSeen!).inMinutes >= 10 ? 0 : 1,
-              duration: const Duration(seconds: 2),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: Colors.grey.shade800.withOpacity(0.5),
-                ),
-                child: Row(children: [
-                  const Text('🤝', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    '${_partnerLastEvent!.displayName} logged ${_timeAgo(_partnerLastEvent!.startTime)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                  )),
-                ]),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-
-        // ── Log buttons — big 2×2 grid ──────────────────────────
-        Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("What's happening?",
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade500,
-                          letterSpacing: 0.5)),
-                  const SizedBox(height: 12),
-                  // 2×2 grid — always fill width evenly
-                  GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 2.4,
-                    children: [
-                      if (cfg.trackFeed)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
-                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
-                            color: kFeedColor,
-                            active: ongoing?.type == EventType.feed,
-                            onTap: () => _openLog(EventType.feed)),
-                      if (cfg.trackDiaper)
-                        _LogBtn(
-                            emoji: '🧷',
-                            label: 'Diaper',
-                            color: kDiaperColor,
-                            onTap: () => _openLog(EventType.diaper)),
-                      if (cfg.trackSleep)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
-                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
-                            color: kSleepColor,
-                            active: ongoing?.type == EventType.sleep,
-                            onTap: () => _openLog(EventType.sleep)),
-                      if (cfg.trackPump)
-                        _LogBtn(
-                            emoji: '🥛',
-                            label: 'Pump',
-                            color: kPumpColor,
-                            onTap: () => _openLog(EventType.pump)),
-                    ],
-                  ),
-                ])),
-
-        // ── Contextual suggestion strip ──────────────────────────
-        Builder(builder: (context) {
-          final suggestion = _getSuggestion(_stats);
-          if (suggestion == null) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: kFeedColor.withOpacity(0.08),
-                border: Border.all(color: kFeedColor.withOpacity(0.2)),
-              ),
-              child: Text(suggestion,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            ),
-          );
-        }),
-
-      ]),
     );
   }
 
@@ -857,7 +905,7 @@ class _LogBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-        onTap: onTap,
+        onTap: () { HapticFeedback.mediumImpact(); onTap(); },
         child: Container(
           decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),

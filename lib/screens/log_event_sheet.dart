@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
@@ -82,6 +83,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
   }
 
   Future<void> _save() async {
+    HapticFeedback.mediumImpact();
     setState(() => _saving = true);
     try {
       BabyEvent? created;
