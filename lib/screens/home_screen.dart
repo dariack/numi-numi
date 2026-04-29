@@ -325,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Text('🤝', style: TextStyle(fontSize: 14)),
                   const SizedBox(width: 8),
                   Expanded(child: Text(
-                    '${_deviceNames[_partnerLastEvent!.createdBy] ?? "Partner"} logged ${_partnerLastEvent!.displayName} ${_timeAgo(_partnerLastEvent!.startTime)}',
+                    (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') + ' logged ' + _partnerLastEvent!.displayName + ' ' + _timeAgo(_partnerLastEvent!.startTime),
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
                   )),
                 ]),
@@ -542,7 +542,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             emoji: '🧷',
                             title: 'Diaper',
                             line1: lastDiaper != null
-                                ? '(${_hhmm(lastDiaper.startTime)}) ${_ago(lastDiaper.startTime)} ago · ${lastDiaper.pee && lastDiaper.poop ? "pee+poop" : lastDiaper.poop ? "poop" : "pee"}'
+                                ? '(' + _hhmm(lastDiaper.startTime) + ') ' + _ago(lastDiaper.startTime) + ' ago · ' + (lastDiaper.pee && lastDiaper.poop ? 'pee+poop' : lastDiaper.poop ? 'poop' : 'pee')
                                 : 'No data',
                             onTap: () => widget.onTabChange?.call('diaper')),
                         const SizedBox(height: 8),
@@ -877,7 +877,7 @@ class _OngoingBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                   Text(
-                      '${event.type == EventType.sleep ? "Sleeping" : "Feeding$sideText"} now',
+                      (event.type == EventType.sleep ? 'Sleeping' : 'Feeding' + sideText) + ' now',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
