@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 
@@ -53,9 +54,14 @@ class _LogEventSheetState extends State<LogEventSheet> {
   bool get _isSleep => widget.type == EventType.sleep;
   bool get _isDiaper => widget.type == EventType.diaper;
 
+  String _deviceId = 'app';
+
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((p) {
+      setState(() => _deviceId = p.getString('device_id') ?? 'app');
+    });
     if (widget.ongoing != null) {
       _when = widget.ongoing!.startTime;
       if (_isFeed && widget.ongoing!.side == null) {
@@ -89,14 +95,14 @@ class _LogEventSheetState extends State<LogEventSheet> {
         final nextId = await widget.service.getNextPumpId();
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.pump, startTime: _when, side: _side,
-          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: nextId, createdBy: 'app',
+          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: nextId, createdBy: _deviceId,
         ));
       } else if (_isFeed) {
         // If pump source with ad-hoc ml, create a pump event first
         if (_feedSource == 'pump' && _adHocMl != null && _adHocMl! > 0) {
           final adHocPump = await widget.service.addEvent(BabyEvent(
             id: '', type: EventType.pump, startTime: _when,
-            ml: _adHocMl, createdBy: 'app-adhoc',
+            ml: _adHocMl, createdBy: _deviceId + '-adhoc',
           ));
           _selectedPumps[adHocPump.id] = _adHocMl!;
         }
@@ -111,7 +117,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
           created = await widget.service.addEvent(BabyEvent(
             id: '', type: EventType.feed, startTime: _when,
             endTime: _when, durationMinutes: 0,
-            createdBy: 'app', source: 'pump',
+            createdBy: _deviceId, source: 'pump',
             linkedPumps: linkedPumpsStr,
             mlFed: totalMl > 0 ? totalMl : null,
           ));
@@ -123,13 +129,13 @@ class _LogEventSheetState extends State<LogEventSheet> {
             id: '', type: EventType.feed, startTime: _when,
             endTime: endTime,
             durationMinutes: _isOngoing ? null : _durationMin,
-            side: _side, createdBy: 'app', source: 'breast',
+            side: _side, createdBy: _deviceId, source: 'breast',
           ));
         }
       } else if (_isDiaper) {
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.diaper, startTime: _when,
-          pee: _pee, poop: _poop, createdBy: 'app',
+          pee: _pee, poop: _poop, createdBy: _deviceId,
         ));
       } else if (_isSleep) {
         DateTime? endTime;
@@ -137,7 +143,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.sleep, startTime: _when,
           endTime: endTime,
-          durationMinutes: _isOngoing ? null : _durationMin, createdBy: 'app',
+          durationMinutes: _isOngoing ? null : _durationMin, createdBy: _deviceId,
         ));
       }
 
