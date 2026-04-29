@@ -153,6 +153,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
   DateTime? _birthDate;
   List<BabyEvent> _allEvents = [];
   int _selectedNightOffset = 1; // 1 = last night, 2 = 2 nights ago, etc.
+  late final PageController _nightPageController = PageController();
 
   @override
   void initState() {
@@ -160,10 +161,16 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _nightPageController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final results = await Future.wait([
       widget.service.getBirthDate(),
-      widget.service.getRecentEvents(days: 14),
+      widget.service.getRecentEvents(days: 10),
     ]);
     if (mounted) setState(() {
       _birthDate = results[0] as DateTime?;
@@ -383,66 +390,78 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
               ]),
             ),
 
-          // ── 1. Night Detail (swipeable) ──────────────────────────
-          // Header row with date + prev/next navigation
-          Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('🌙 Night Detail', style: TextStyle(fontSize: 12,
-                  fontWeight: FontWeight.w700, color: Colors.grey.shade500, letterSpacing: 0.5)),
-              Text(
-                _selectedNightOffset == 1
-                    ? 'Last night · ${_fmtDate(lastNightBase)}'
-                    : '${_selectedNightOffset} nights ago · ${_fmtDate(lastNightBase)}',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            ])),
-            // Subtle prev/next arrows
-            GestureDetector(
-              onTap: _selectedNightOffset < 7
-                  ? () => setState(() { _selectedNightOffset++; })
-                  : null,
-              child: Padding(padding: const EdgeInsets.all(8),
-                child: Icon(Icons.chevron_left,
-                  color: _selectedNightOffset < 7 ? Colors.grey.shade500 : Colors.grey.shade800,
-                  size: 20)),
-            ),
-            GestureDetector(
-              onTap: _selectedNightOffset > 1
-                  ? () => setState(() { _selectedNightOffset--; })
-                  : null,
-              child: Padding(padding: const EdgeInsets.all(8),
-                child: Icon(Icons.chevron_right,
-                  color: _selectedNightOffset > 1 ? Colors.grey.shade500 : Colors.grey.shade800,
-                  size: 20)),
-            ),
-          ]),
+          // ── 1. Night Detail (swipeable PageView, 3 nights) ────────
+          _SectionLabel('🌙 Night Detail'),
+          SizedBox(height: 8, child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(3, (i) => Container(
+              width: _selectedNightOffset == i + 1 ? 16 : 6,
+              height: 6,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                color: _selectedNightOffset == i + 1 ? _kIndigo : Colors.grey.shade700,
+              ),
+            )),
+          )),
           const SizedBox(height: 8),
-          if (lastNightEvents.isEmpty && lastNightGaps.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text('No data for this night.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-            )
-          else ...[
-            Row(children: [
-              Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: longestStretch > 0 ? _fmtHm(longestStretch) : '--', label: 'Longest stretch', color: _kIndigo)),
-              const SizedBox(width: 8),
-              Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌙', value: totalSleep > 0 ? _fmtHm(totalSleep) : '--', label: 'Total sleep', sub: '22:00–08:00', color: _kTeal)),
-              const SizedBox(width: 8),
-              Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$wakings', label: 'Wakings', color: _kIndigo)),
-            ]),
-            const SizedBox(height: 10),
-            _NightTimeline(
-              cardBg: cardBg,
-              nightStart: lastNight.start,
-              nightEnd: lastNight.end,
-              strictStart: lastNightStrict.start,
-              events: lastNightEvents,
-              gaps: lastNightGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
+          SizedBox(
+            height: 360,
+            child: PageView.builder(
+              controller: _nightPageController,
+              itemCount: 3,
+              onPageChanged: (i) => setState(() => _selectedNightOffset = i + 1),
+              itemBuilder: (context, pageIndex) {
+                final offset = pageIndex + 1;
+                final baseOff = now.hour < 8 ? offset + 1 : offset;
+                final pgBase = DateTime(now.year, now.month, now.day - baseOff);
+                final pgNight = _nightWindow(pgBase);
+                final pgStrict = _strictNightWindow(pgBase);
+                final pgGaps = _inferNightSleep(actionEvents, pgNight.start, pgNight.end, gapMin);
+                final pgStrictGaps = _inferNightSleep(actionEvents, pgStrict.start, pgStrict.end, gapMin);
+                final pgEvents = actionEvents
+                    .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
+                    .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+                final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
+                final pgTotal = pgStrictGaps.fold(0, (s, g) => s + g.minutes);
+                final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
+                final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('$pgLabel · ${_fmtDate(pgBase)}',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    if (pgEvents.isEmpty && pgGaps.isEmpty)
+                      Text('No data for this night.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+                    else ...[
+                      Row(children: [
+                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌙', value: pgTotal > 0 ? _fmtHm(pgTotal) : '--', label: 'Total sleep', sub: '22:00–08:00', color: _kTeal)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
+                      ]),
+                      const SizedBox(height: 10),
+                      _NightTimeline(
+                        cardBg: cardBg,
+                        nightStart: pgNight.start,
+                        nightEnd: pgNight.end,
+                        strictStart: pgStrict.start,
+                        events: pgEvents,
+                        gaps: pgGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
+                      ),
+                      const SizedBox(height: 6),
+                      _Blurb('Gaps >' + gapMin.toString() + 'min inferred as sleep · swipe to compare nights'),
+                    ],
+                  ]),
+                );
+              },
             ),
-            const SizedBox(height: 8),
-            _Blurb('Sleep inferred from gaps >\${gapMin}min · swipe ‹ › to compare nights'),
-            const SizedBox(height: 16),
-          ],
+          ),
+          const SizedBox(height: 16),
 
           // ── 2. 7-Day Trend ──────────────────────────────────────
           _SectionLabel('📊 7-Day Trend'),

@@ -343,10 +343,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
                     color: Colors.grey.shade500, letterSpacing: 0.5)),
             const Spacer(),
-            GestureDetector(
-              onTap: _showPendingDebug,
+            TextButton(
+              onPressed: _showPendingDebug,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: const Size(44, 32),
+              ),
               child: Text('check scheduled',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500,
                       fontStyle: FontStyle.italic))),
           ]),
           const SizedBox(height: 8),
