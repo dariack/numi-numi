@@ -52,14 +52,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _showPendingDebug() async {
     final pending = await NotificationService.instance.getPending();
     if (!mounted) return;
+    final msg = pending.isEmpty ? 'None scheduled'
+        : pending.map((p) {
+            return '#' + p.id.toString() + ': ' + (p.title ?? '') + '\n' + (p.body ?? '');
+          }).join('\n\n');
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text('Scheduled Notifications'),
-      content: Text(pending.isEmpty
-          ? 'None scheduled'
-          : pending.map((p) => '#${p.id}: ${p.title}
-${p.body}').join('
-
-')),
+      content: Text(msg),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
     ));
   }

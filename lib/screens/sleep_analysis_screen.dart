@@ -72,7 +72,9 @@ List<({DateTime start, DateTime end, int minutes})> _inferNightSleep(
 
 String _fmtDate(DateTime d) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return '\${days[d.weekday - 1]} \${d.day.toString().padLeft(2, '0')}/\${d.month.toString().padLeft(2, '0')}';
+  final day = d.day.toString().padLeft(2, '0');
+  final month = d.month.toString().padLeft(2, '0');
+  return days[d.weekday - 1] + ' ' + day + '/' + month;
 }
 
 String _fmtHm(int mins) {
