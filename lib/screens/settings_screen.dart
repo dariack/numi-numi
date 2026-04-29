@@ -268,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('Birth Date', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                 Text(_birthDate != null
-                    ? '${_birthDate!.day.toString().padLeft(2,'0')}/${_birthDate!.month.toString().padLeft(2,'0')}/${_birthDate!.year}'
+                    ? '${_birthDate!.day.toString().padLeft(2, "0")}/${_birthDate!.month.toString().padLeft(2, "0")}/${_birthDate!.year}'
                     : 'Not set',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
               ])),
@@ -404,7 +404,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const SizedBox(height: 12),
-                Text('Code: \${widget.familyId}',
+                Text('Code: ${widget.familyId}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 15)),
                 const SizedBox(height: 8),
@@ -499,7 +499,7 @@ class _TimePickerTile extends StatelessWidget {
         final picked = await showTimePicker(context: context, initialTime: initial);
         if (picked != null) {
           final newTime =
-              '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+              '${picked.hour.toString().padLeft(2, "0")}:${picked.minute.toString().padLeft(2, "0")}';
           onChanged(newTime);
         }
       },

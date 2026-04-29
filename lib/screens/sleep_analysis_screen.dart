@@ -72,8 +72,8 @@ List<({DateTime start, DateTime end, int minutes})> _inferNightSleep(
 
 String _fmtDate(DateTime d) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  final day = d.day.toString().padLeft(2, '0');
-  final month = d.month.toString().padLeft(2, '0');
+  final day = d.day.toString().padLeft(2, "0");
+  final month = d.month.toString().padLeft(2, "0");
   return days[d.weekday - 1] + ' ' + day + '/' + month;
 }
 
@@ -85,7 +85,7 @@ String _fmtHm(int mins) {
 }
 
 String _fmtTime(DateTime d) =>
-    '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    '${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
 
 List<String> _ageTips(String bracket, int? weeks) {
   final w = weeks?.toString() ?? '?';
@@ -229,7 +229,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       final strictGaps7 = _inferNightSleep(actionEvents, strictWin.start, strictWin.end, gapMin);
       final total = strictGaps7.fold(0, (s, g) => s + g.minutes);
       nightData.add((
-        label: '${base.day.toString().padLeft(2, '0')}/${base.month.toString().padLeft(2, '0')}',
+        label: '${base.day.toString().padLeft(2, "0")}/${base.month.toString().padLeft(2, "0")}',
         longest: longest,
         total: total,
       ));
@@ -848,7 +848,7 @@ class _NightTimeline extends StatelessWidget {
     return filtered.map((l) {
       final left = w * ((l.ms - tlStart) / tlRange);
       final d = DateTime.fromMillisecondsSinceEpoch(l.ms.toInt());
-      final label = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+      final label = '${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
       return Positioned(
         left: (left - 16).clamp(0, w - 32),
         top: 0, bottom: 0,
