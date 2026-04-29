@@ -268,7 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _hhmm(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+      '${t.hour.toString().padLeft(2, "0")}:${t.minute.toString().padLeft(2, "0")}';
 
 
 
@@ -608,7 +608,7 @@ class _FeedStatCard extends StatelessWidget {
   }
 
   String _hhmm(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+      '${t.hour.toString().padLeft(2, "0")}:${t.minute.toString().padLeft(2, "0")}';
 
   String _feedDetail(BabyEvent f) {
     final endT = f.endTime ?? f.startTime;
@@ -792,11 +792,11 @@ class _PumpStockCard extends StatelessWidget {
 
   String _expiry(DateTime? d) {
     if (d == null) return '';
-    return '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')} ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+    return '${d.day.toString().padLeft(2,"0")}/${d.month.toString().padLeft(2,"0")} ${d.hour.toString().padLeft(2,"0")}:${d.minute.toString().padLeft(2,"0")}';
   }
 
   String _pumped(DateTime d) =>
-      '${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')} ${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+      '${d.day.toString().padLeft(2,"0")}/${d.month.toString().padLeft(2,"0")} ${d.hour.toString().padLeft(2,"0")}:${d.minute.toString().padLeft(2,"0")}';
 
   @override
   Widget build(BuildContext context) {

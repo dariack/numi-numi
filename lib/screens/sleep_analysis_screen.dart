@@ -281,7 +281,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
           .where((e) => !e.startTime.isBefore(dfStart) && e.startTime.isBefore(dfEnd))
           .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
       if (dayFeeds.isEmpty) {
-        dayFeedData.add((label: '${base.day.toString().padLeft(2,'0')}/${base.month.toString().padLeft(2,'0')}', count: 0, avgGap: 0));
+        dayFeedData.add((label: '${base.day.toString().padLeft(2,"0")}/${base.month.toString().padLeft(2,"0")}', count: 0, avgGap: 0));
         continue;
       }
       final gaps2 = <int>[];
@@ -291,7 +291,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       }
       final avgGap2 = gaps2.isEmpty ? 0 : gaps2.fold(0, (s, v) => s + v) ~/ gaps2.length;
       dayFeedData.add((
-        label: '${base.day.toString().padLeft(2,'0')}/${base.month.toString().padLeft(2,'0')}',
+        label: '${base.day.toString().padLeft(2,"0")}/${base.month.toString().padLeft(2,"0")}',
         count: dayFeeds.length, avgGap: avgGap2));
     }
     final validDayFeeds = dayFeedData.where((d) => d.count > 0).toList();
@@ -318,7 +318,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         }
       }
       nightFeedTrend.add((
-        label: '${win.start.day.toString().padLeft(2,'0')}/${win.start.month.toString().padLeft(2,'0')}',
+        label: '${win.start.day.toString().padLeft(2,"0")}/${win.start.month.toString().padLeft(2,"0")}',
         count: sessions));
     }
     final recentNF = nightFeedTrend.skip(4).where((d) => d.count > 0).toList();
