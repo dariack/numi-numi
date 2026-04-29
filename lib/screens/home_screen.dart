@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
     if (id == null) {
-      id = 'device_\${DateTime.now().millisecondsSinceEpoch}';
+      id = 'device_' + DateTime.now().millisecondsSinceEpoch.toString();
       await prefs.setString('device_id', id);
     }
     // Register this device's name in Firestore so partner can see it
@@ -111,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final avgGap = (stats['avgFeedGapMin'] as num?)?.toInt() ?? 180;
       if (feedMins >= (avgGap * 0.8).round() && feedMins < avgGap * 1.5) {
         final h = feedMins ~/ 60; final m = feedMins % 60;
-        suggestions.add('⏰ ${h > 0 ? "${h}h " : ""}${m}m since last feed — usually every ${avgGap ~/ 60}h');
+        final feedStr = (h > 0 ? h.toString() + 'h ' : '') + m.toString() + 'm since last feed — usually every ' + (avgGap ~/ 60).toString() + 'h';
+        suggestions.add('⏰ ' + feedStr);
       }
     }
 
@@ -121,7 +122,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final diaperMins = now.difference(lastDiaper.startTime).inMinutes;
       if (diaperMins >= 180) {
         final h = diaperMins ~/ 60; final m = diaperMins % 60;
-        suggestions.add('🧷 ${h}h ${m > 0 ? "${m}m " : ""}since last diaper — time to check?');
+        final diaperStr = h.toString() + 'h ' + (m > 0 ? m.toString() + 'm ' : '') + 'since last diaper — time to check?';
+        suggestions.add('🧷 ' + diaperStr);
       }
     }
 
