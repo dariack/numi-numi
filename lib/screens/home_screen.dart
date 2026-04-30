@@ -287,7 +287,62 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) => _events);
       },
       child: ListView(padding: EdgeInsets.zero, children: [
-        // ── Contextual suggestion strip (top of page) ─────────
+        // ── Medicine reminders — TOP of page, persist until given ──
+        if (_pendingReminders.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(children: _pendingReminders.map((r) {
+              final med = r['medicine'] as Medicine;
+              final slot = r['scheduledTime'] as String;
+              final dayLabel = r['dayLabel'] as String? ?? 'Today';
+              final isOverdue = r['isOverdue'] as bool? ?? false;
+              final borderCol = isOverdue ? Colors.orange : Colors.purple;
+              final bgCol = isOverdue
+                  ? Colors.orange.withOpacity(0.1)
+                  : Colors.purple.withOpacity(0.1);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: bgCol,
+                    border: Border.all(color: borderCol, width: 2),
+                  ),
+                  child: Row(children: [
+                    Text(isOverdue ? '⚠️' : '💊',
+                        style: const TextStyle(fontSize: 20)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Give ' + med.displayName,
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: borderCol)),
+                      Text(dayLabel + ' at ' + slot + (isOverdue ? ' — overdue' : ''),
+                          style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.8))),
+                    ])),
+                    TextButton(
+                      onPressed: () async {
+                        HapticFeedback.lightImpact();
+                        await widget.medicineService!.markGiven(
+                            medicine: med, scheduledTime: slot);
+                        final reminders = await widget.medicineService!
+                            .getPendingReminders(_medicines);
+                        if (mounted) setState(() => _pendingReminders = reminders);
+                      },
+                      style: TextButton.styleFrom(
+                        backgroundColor: borderCol.withOpacity(0.15),
+                        foregroundColor: borderCol,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                ),
+              );
+            }).toList()),
+          ),
+
+        // ── Contextual suggestion strip ──────────────────────────
         Builder(builder: (context) {
           final suggestions = _getSuggestions(_stats);
           if (suggestions.isEmpty) return const SizedBox.shrink();
@@ -348,56 +403,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               letterSpacing: 0.5)),
                       const SizedBox(height: 10),
 
-                      // Medicine reminders — persist until given, stack if multiple
-                      ..._pendingReminders.map((r) {
-                        final med = r['medicine'] as Medicine;
-                        final slot = r['scheduledTime'] as String;
-                        final dayLabel = r['dayLabel'] as String? ?? 'Today';
-                        final isOverdue = r['isOverdue'] as bool? ?? false;
-                        final borderCol = isOverdue ? Colors.orange : Colors.purple;
-                        final bgCol = isOverdue
-                            ? Colors.orange.withOpacity(0.1)
-                            : Colors.purple.withOpacity(0.1);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: bgCol,
-                              border: Border.all(color: borderCol, width: 2),
-                            ),
-                            child: Row(children: [
-                              Text(isOverdue ? '⚠️' : '💊',
-                                  style: const TextStyle(fontSize: 22)),
-                              const SizedBox(width: 10),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text('Give ' + med.displayName,
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: borderCol)),
-                                Text(dayLabel + ' at ' + slot + (isOverdue ? ' — overdue' : ''),
-                                    style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.8))),
-                              ])),
-                              TextButton(
-                                onPressed: () async {
-                                  HapticFeedback.lightImpact();
-                                  await widget.medicineService!.markGiven(
-                                      medicine: med, scheduledTime: slot);
-                                  final reminders = await widget.medicineService!
-                                      .getPendingReminders(_medicines);
-                                  if (mounted) setState(() => _pendingReminders = reminders);
-                                },
-                                style: TextButton.styleFrom(
-                                  backgroundColor: borderCol.withOpacity(0.15),
-                                  foregroundColor: borderCol,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                                child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ),
-                            ]),
-                          ),
-                        );
-                      }),
 
                       if (ongoing != null) ...[
                         _OngoingBanner(

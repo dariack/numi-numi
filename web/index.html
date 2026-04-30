@@ -249,15 +249,16 @@ function buildHomeStatsHtml(){
   // Medicine reminders
   getPendingReminders().forEach(function(r){
     var med=r.medicine,slot=r.scheduledTime;
+    var dayLabel=r.dayLabel||'Today';var isOverdue=r.isOverdue||false;
     var label=med.dose?med.name+' ('+med.dose+')':med.name;
-    h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
-      +'<span style="font-size:1.3rem">💊</span>'
-      +'<div style="flex:1"><div style="font-weight:700;font-size:0.9rem;color:#a855f7">Give '+label+'</div>'
-      +'<div style="font-size:0.78rem;color:var(--muted)">Scheduled: '+slot+'</div></div>'
-      +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:#a855f7;color:#fff;border:none;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.85rem">✓ Given</button>'
+    var col=isOverdue?'#f97316':'#a855f7';var emoji=isOverdue?'⚠️':'💊';
+    h+='<div style="background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.1);border:2px solid '+col+';border-radius:12px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
+      +'<span style="font-size:1.3rem">'+emoji+'</span>'
+      +'<div style="flex:1"><div style="font-weight:700;font-size:0.9rem;color:'+col+'">Give '+label+'</div>'
+      +'<div style="font-size:0.78rem;color:var(--muted)">'+dayLabel+' at '+slot+(isOverdue?' — overdue':'')+'</div></div>'
+      +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:'+col+';color:#fff;border:none;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.85rem">✓ Given</button>'
       +'</div>';
   });
-  var ong=s.ong;
   if(ong){var dur=fmt(now-ong.startTime);var cls=ong.type==='sleep'?'':'feed';var st=ong.side?' ('+ong.side+')':'';
     h+='<div class="ongoing '+cls+'" onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')"><div class="em">'+(ong.type==='sleep'?'😴':'🍼')+'</div><div class="info"><div class="ot">'+(ong.type==='sleep'?'Sleeping':'Feeding'+st)+' now</div><div class="sub">'+dur+' · click to end</div></div><div>⏹</div></div>';}
   if(cfg.trackSleep){
@@ -555,21 +556,42 @@ function listenMedicines(){
 
 function getPendingReminders(){
   var now=new Date(),pending=[];
-  var todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  var givenToday=allMedicineGiven.filter(function(g){return g.givenAt>=todayStart;});
-  allMedicines.forEach(function(med){
-    if(med.scheduleType==='asNeeded')return;
-    if(med.scheduleType==='specificDays'){
-      var dow=(now.getDay()+6)%7; // 0=Mon
-      if(!med.daysOfWeek||!med.daysOfWeek.includes(dow))return;
-    }
-    (med.timesOfDay||[]).forEach(function(slot){
-      var parts=slot.split(':'),slotH=+parts[0],slotM=+parts[1];
-      var slotTime=new Date(now.getFullYear(),now.getMonth(),now.getDate(),slotH,slotM);
-      if(now<new Date(slotTime-15*60000))return; // not yet within 15min window
-      var alreadyGiven=givenToday.some(function(g){return g.medicineId===med.id&&g.scheduledTime===slot;});
-      if(!alreadyGiven)pending.push({medicine:med,scheduledTime:slot});
+  var lookback=new Date(now.getTime()-48*3600000);
+  var recentGiven=allMedicineGiven.filter(function(g){return g.givenAt>=lookback;});
+  // Check today and yesterday
+  [0,1].forEach(function(dayOffset){
+    var slotDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dayOffset);
+    allMedicines.forEach(function(med){
+      if(med.scheduleType==='asNeeded')return;
+      if(med.scheduleType==='specificDays'){
+        var dow=(slotDate.getDay()+6)%7;
+        if(!med.daysOfWeek||!med.daysOfWeek.includes(dow))return;
+      }
+      (med.timesOfDay||[]).forEach(function(slot){
+        var parts=slot.split(':'),slotH=+parts[0],slotM=+parts[1];
+        var slotTime=new Date(slotDate.getFullYear(),slotDate.getMonth(),slotDate.getDate(),slotH,slotM);
+        if(now<new Date(slotTime.getTime()-15*60000))return;
+        if((now-slotTime)/3600000>48)return;
+        var alreadyGiven=recentGiven.some(function(g){
+          return g.medicineId===med.id&&g.scheduledTime===slot&&
+            g.givenAt.getFullYear()===slotDate.getFullYear()&&
+            g.givenAt.getMonth()===slotDate.getMonth()&&
+            g.givenAt.getDate()===slotDate.getDate();
+        });
+        if(!alreadyGiven){
+          var isToday=dayOffset===0;
+          var dayLabel=isToday?'Today':'Yesterday';
+          var isOverdue=!isToday||(now-slotTime)/60000>30;
+          pending.push({medicine:med,scheduledTime:slot,slotTime:slotTime,dayLabel:dayLabel,isOverdue:isOverdue});
+        }
+      });
     });
+  });
+  // Sort: overdue first, then by slot time
+  pending.sort(function(a,b){
+    if(a.isOverdue&&!b.isOverdue)return -1;
+    if(!a.isOverdue&&b.isOverdue)return 1;
+    return a.slotTime-b.slotTime;
   });
   return pending;
 }
@@ -593,12 +615,14 @@ function renderMedicine(){
     h+='<div class="section-label">Reminders</div>';
     pending.forEach(function(r){
       var med=r.medicine,slot=r.scheduledTime;
+      var dayLabel=r.dayLabel||'Today';var isOverdue=r.isOverdue||false;
       var label=med.dose?med.name+' ('+med.dose+')':med.name;
-      h+='<div style="background:rgba(168,85,247,0.1);border:2px solid #a855f7;border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'
-        +'<span style="font-size:1.5rem">💊</span>'
-        +'<div style="flex:1"><div style="font-weight:700;color:#a855f7">Give '+label+'</div>'
-        +'<div style="font-size:0.82rem;color:var(--muted)">Scheduled: '+slot+'</div></div>'
-        +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:#a855f7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer">✓ Given</button>'
+      var col=isOverdue?'#f97316':'#a855f7';var emoji=isOverdue?'⚠️':'💊';
+      h+='<div style="background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.1);border:2px solid '+col+';border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'
+        +'<span style="font-size:1.5rem">'+emoji+'</span>'
+        +'<div style="flex:1"><div style="font-weight:700;color:'+col+'">Give '+label+'</div>'
+        +'<div style="font-size:0.82rem;color:var(--muted)">'+dayLabel+' at '+slot+(isOverdue?' — overdue':'')+'</div></div>'
+        +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:'+col+';color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer">✓ Given</button>'
         +'</div>';
     });
   }
