@@ -241,16 +241,13 @@ class _MainAppState extends State<MainApp> {
             final idx = tabs.indexWhere((t) => t.id == tabId);
             if (idx >= 0 && mounted) setState(() => _tab = idx);
           },
-          onShowHistory: () {
-            if (mounted) setState(() => _tab = 0);
-            Navigator.push(context, MaterialPageRoute(
-              builder: (_) => HistoryScreen(
-                service: _service,
-                medicineService: _medicineService,
-              ),
-            ));
-          },
+
         ),
+      ),
+      _NavTab(
+        id: 'history', icon: Icons.history_outlined, selectedIcon: Icons.history,
+        label: 'History',
+        builder: () => HistoryScreen(service: _service, medicineService: _medicineService),
       ),
       _NavTab(
         id: 'insights', icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,

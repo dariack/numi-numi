@@ -23,8 +23,7 @@ class HomeScreen extends StatefulWidget {
   final MedicineService? medicineService;
   final ReminderService? reminderService;
   final void Function(String)? onTabChange;
-  final VoidCallback? onShowHistory;
-  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange, this.onShowHistory});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -418,24 +417,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }).toList()),
           );
         }),
-
-        // History link
-        if (widget.onShowHistory != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                widget.onShowHistory!();
-              },
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                Text('View full history',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                const SizedBox(width: 4),
-                Icon(Icons.arrow_forward_ios, size: 10, color: Colors.grey.shade500),
-              ]),
-            ),
-          ),
 
         // Log buttons 2x2 grid
         Padding(
