@@ -179,7 +179,7 @@ function listenConfig(){
     updateNav();render();
   });
 }
-function saveCfg(){db.collection('families').doc(fid).collection('settings').doc('config').set(cfg)}
+function saveCfg(){db.collection('families').doc(fid).collection('settings').doc('config').set(cfg,{merge:true})}
 function updateNav(){
   var sb=document.getElementById('sidebar-nav');
   var show={feed:cfg.trackFeed,sleep:cfg.trackSleep,diaper:cfg.trackDiaper,pump:cfg.trackPump};
@@ -558,18 +558,18 @@ function listenMedicines(){
     });
 }
 
+var _slotDayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+function fmtSlotLabel(slotDate,slot,dayOffset){
+  var d=pad(slotDate.getDate()),m=pad(slotDate.getMonth()+1);
+  var dayName=_slotDayNames[(slotDate.getDay()+6)%7];
+  if(dayOffset===0)return 'Today at '+slot;
+  if(dayOffset===1)return 'Yesterday ('+dayName+' '+d+'/'+m+') at '+slot;
+  return dayName+' '+d+'/'+m+' at '+slot;
+}
 function getPendingReminders(){
   var now=new Date(),pending=[];
-  var dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   var lookback=new Date(now.getTime()-48*3600000);
   var recentGiven=allMedicineGiven.filter(function(g){return g.givenAt>=lookback;});
-  function fmtSlotLabel(slotDate,slot,dayOffset){
-    var d=pad(slotDate.getDate()),m=pad(slotDate.getMonth()+1);
-    var dayName=dayNames[(slotDate.getDay()+6)%7];
-    if(dayOffset===0)return 'Today at '+slot;
-    if(dayOffset===1)return 'Yesterday ('+dayName+' '+d+'/'+m+') at '+slot;
-    return dayName+' '+d+'/'+m+' at '+slot;
-  }
   // Check past 3 days — fixes midnight disappear bug
   [0,1,2].forEach(function(dayOffset){
     var slotDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dayOffset);
@@ -618,20 +618,19 @@ function saveCaregiverName(name){
 }
 
 function toggleReminderCfg(key){
-  var cfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
-  cfg[key]=!cfg[key];
-  if(cfg[key]===undefined)cfg[key]=false;
-  localStorage.setItem('reminder_cfg',JSON.stringify(cfg));
-  // Sync to Firestore
-  syncReminderCfg(cfg);
+  var remCfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
+  remCfg[key]=remCfg[key]===false?true:false; // toggle: undefined->false, false->true, true->false
+  if(key==='feedEnabled'&&remCfg[key]===undefined)remCfg[key]=true;
+  localStorage.setItem('reminder_cfg',JSON.stringify(remCfg));
+  syncReminderCfg(remCfg);
   renderSettings();
 }
 
 function setReminderThreshold(key,val){
-  var cfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
-  cfg[key]=val;
-  localStorage.setItem('reminder_cfg',JSON.stringify(cfg));
-  syncReminderCfg(cfg);
+  var remCfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
+  remCfg[key]=val;
+  localStorage.setItem('reminder_cfg',JSON.stringify(remCfg));
+  syncReminderCfg(remCfg);
   renderSettings();
 }
 
@@ -1495,25 +1494,42 @@ function renderSettings(){
     +'<input type="number" id="bd-yyyy" placeholder="YYYY" min="2020" max="2099" value="'+bdY+'" style="width:68px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:8px;font-size:0.9rem;text-align:center" oninput="saveBirthDateParts()"/>'
     +'</div></div>';
   h+='</div>';
-  h+='<div class="stats-section"><div class="section-label">Family</div>';
+  h+='<div class="stats-section">';
+  h+='<div class="section-label">Family</div>';
   var savedName=localStorage.getItem('caregiver_name')||'';
-  h+='<div class="toggle-row"><div><div class="tr-label">👤 Your name</div><div style="font-size:0.75rem;color:var(--muted)">Shown to partner when you log an event</div></div>';
-  h+='<input id="caregiver-name-input" type="text" value="'+savedName+'" placeholder="e.g. Daria, Mom, Nanny" onchange="saveCaregiverName(this.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:0.9rem;width:160px"/></div>';
-  h+='<div style="padding:10px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
-  h+='<div class="change-btn" onclick="disconnect()" style="font-size:0.85rem">Change family code</div>';
+  h+='<div style="margin-bottom:10px">';
+  h+='<div class="tr-label" style="margin-bottom:2px">👤 Your name</div>';
+  h+='<div style="font-size:0.75rem;color:var(--muted);margin-bottom:6px">Shown to partner when you log an event</div>';
+  h+='<input id="caregiver-name-input" type="text" value="'+savedName+'" placeholder="e.g. Daria, Mom, Nanny" onchange="saveCaregiverName(this.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:0.9rem;width:180px"/>';
   h+='</div>';
-  h+='<div class="stats-section"><div class="section-label">Reminders</div>';
+  h+='<div style="padding:6px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
+  h+='<div class="change-btn" onclick="disconnect()" style="font-size:0.85rem;margin-top:4px">Change family code</div>';
+  h+='</div>';
+  h+='<div class="stats-section">';
+  h+='<div class="section-label">Reminders</div>';
   var remCfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
   var feedEn=remCfg.feedEnabled!==false,diaperEn=remCfg.diaperEnabled!==false;
   var feedH=remCfg.feedThresholdHours||3,diaperH=remCfg.diaperThresholdHours||3;
-  h+='<div class="toggle-row"><div><div class="tr-label">🍼 Feed reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+feedH+'h since last feed</div></div>';
-  h+='<div class="tr-toggle '+(feedEn?'on':'')+'" onclick="toggleReminderCfg(\'feedEnabled\')" ></div></div>';
-  if(feedEn){h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center"><span style="font-size:0.85rem;color:var(--muted)">After:</span>';
-    [2,3,4].forEach(function(h2){h+='<button onclick="setReminderThreshold(\'feedThresholdHours\','+h2+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(feedH===h2?'var(--feed)':'var(--border)')+';background:'+(feedH===h2?'rgba(249,115,22,0.12)':'none')+';color:'+(feedH===h2?'var(--feed)':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(feedH===h2?'700':'400')+'">'+(h2)+'h</button>';});h+='</div>';}
-  h+='<div class="toggle-row"><div><div class="tr-label">🧷 Diaper reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+diaperH+'h since last change</div></div>';
-  h+='<div class="tr-toggle '+(diaperEn?'on':'')+'" onclick="toggleReminderCfg(\'diaperEnabled\')" ></div></div>';
-  if(diaperEn){h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center"><span style="font-size:0.85rem;color:var(--muted)">After:</span>';
-    [2,3,4].forEach(function(h2){h+='<button onclick="setReminderThreshold(\'diaperThresholdHours\','+h2+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(diaperH===h2?'#6366f1':'var(--border)')+';background:'+(diaperH===h2?'rgba(99,102,241,0.12)':'none')+';color:'+(diaperH===h2?'#6366f1':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(diaperH===h2?'700':'400')+'">'+(h2)+'h</button>';});h+='</div>';}
+  h+='<div class="toggle-row">';
+  h+='<div><div class="tr-label">🍼 Feed reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+feedH+'h since last feed</div></div>';
+  h+='<div class="tr-toggle '+(feedEn?'on':'')+' " onclick="toggleReminderCfg(\'feedEnabled\')"></div>';
+  h+='</div>';
+  if(feedEn){
+    h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center">';
+    h+='<span style="font-size:0.85rem;color:var(--muted)">After:</span>';
+    [2,3,4].forEach(function(hv){h+='<button onclick="setReminderThreshold(\'feedThresholdHours\','+hv+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(feedH===hv?'var(--feed)':'var(--border)')+';background:'+(feedH===hv?'rgba(249,115,22,0.12)':'none')+';color:'+(feedH===hv?'var(--feed)':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(feedH===hv?700:400)+'">'+hv+'h</button>';});
+    h+='</div>';
+  }
+  h+='<div class="toggle-row">';
+  h+='<div><div class="tr-label">🧷 Diaper reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+diaperH+'h since last change</div></div>';
+  h+='<div class="tr-toggle '+(diaperEn?'on':'')+' " onclick="toggleReminderCfg(\'diaperEnabled\')"></div>';
+  h+='</div>';
+  if(diaperEn){
+    h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center">';
+    h+='<span style="font-size:0.85rem;color:var(--muted)">After:</span>';
+    [2,3,4].forEach(function(hv){h+='<button onclick="setReminderThreshold(\'diaperThresholdHours\','+hv+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(diaperH===hv?'#6366f1':'var(--border)')+';background:'+(diaperH===hv?'rgba(99,102,241,0.12)':'none')+';color:'+(diaperH===hv?'#6366f1':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(diaperH===hv?700:400)+'">'+hv+'h</button>';});
+    h+='</div>';
+  }
   h+='</div>';
   document.getElementById('main').innerHTML=h;
 }
