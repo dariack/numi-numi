@@ -154,6 +154,7 @@ var fid=localStorage.getItem('familyId')||'',unsub=null,allEv=[],tab='home',type
 var cfg={trackSleep:true,trackFeed:true,trackDiaper:true,trackPump:false,birthDate:null};
 var cfgUnsub=null;
 var allMedicines=[],allMedicineGiven=[],medUnsub=null,medGivenUnsub=null;
+var dismissedReminders={};
 
 if(fid)startApp();else showConnect();
 
@@ -249,13 +250,16 @@ function buildHomeStatsHtml(){
   // Medicine reminders
   getPendingReminders().forEach(function(r){
     var med=r.medicine,slot=r.scheduledTime;
-    var dayLabel=r.dayLabel||'Today';var isOverdue=r.isOverdue||false;
+    var dismissKey=med.id+'_'+slot+'_'+(r.slotDate?r.slotDate.getDate()+'_'+r.slotDate.getMonth():'');
+    if(dismissedReminders[dismissKey])return;
+    var dayLabel=r.dayLabel||('Today at '+slot);var isOverdue=r.isOverdue||false;
     var label=med.dose?med.name+' ('+med.dose+')':med.name;
     var col=isOverdue?'#f97316':'#a855f7';var emoji=isOverdue?'⚠️':'💊';
     h+='<div style="background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.1);border:2px solid '+col+';border-radius:12px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
       +'<span style="font-size:1.3rem">'+emoji+'</span>'
       +'<div style="flex:1"><div style="font-weight:700;font-size:0.9rem;color:'+col+'">Give '+label+'</div>'
-      +'<div style="font-size:0.78rem;color:var(--muted)">'+dayLabel+' at '+slot+(isOverdue?' — overdue':'')+'</div></div>'
+      +'<div style="font-size:0.78rem;color:var(--muted)">'+dayLabel+(isOverdue?' — overdue':'')+'</div></div>'
+      +'<button onclick="dismissReminder(\''+dismissKey+'\')" style="background:none;border:none;color:'+col+';opacity:0.5;cursor:pointer;font-size:1.1rem;padding:4px 8px" title="Dismiss">✕</button>'
       +'<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="background:'+col+';color:#fff;border:none;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.85rem">✓ Given</button>'
       +'</div>';
   });
@@ -556,10 +560,18 @@ function listenMedicines(){
 
 function getPendingReminders(){
   var now=new Date(),pending=[];
+  var dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   var lookback=new Date(now.getTime()-48*3600000);
   var recentGiven=allMedicineGiven.filter(function(g){return g.givenAt>=lookback;});
-  // Check today and yesterday
-  [0,1].forEach(function(dayOffset){
+  function fmtSlotLabel(slotDate,slot,dayOffset){
+    var d=pad(slotDate.getDate()),m=pad(slotDate.getMonth()+1);
+    var dayName=dayNames[(slotDate.getDay()+6)%7];
+    if(dayOffset===0)return 'Today at '+slot;
+    if(dayOffset===1)return 'Yesterday ('+dayName+' '+d+'/'+m+') at '+slot;
+    return dayName+' '+d+'/'+m+' at '+slot;
+  }
+  // Check past 3 days — fixes midnight disappear bug
+  [0,1,2].forEach(function(dayOffset){
     var slotDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()-dayOffset);
     allMedicines.forEach(function(med){
       if(med.scheduleType==='asNeeded')return;
@@ -580,9 +592,9 @@ function getPendingReminders(){
         });
         if(!alreadyGiven){
           var isToday=dayOffset===0;
-          var dayLabel=isToday?'Today':'Yesterday';
           var isOverdue=!isToday||(now-slotTime)/60000>30;
-          pending.push({medicine:med,scheduledTime:slot,slotTime:slotTime,dayLabel:dayLabel,isOverdue:isOverdue});
+          pending.push({medicine:med,scheduledTime:slot,slotTime:slotTime,slotDate:slotDate,
+            dayLabel:fmtSlotLabel(slotDate,slot,dayOffset),isOverdue:isOverdue});
         }
       });
     });
@@ -594,6 +606,43 @@ function getPendingReminders(){
     return a.slotTime-b.slotTime;
   });
   return pending;
+}
+
+function saveCaregiverName(name){
+  localStorage.setItem('caregiver_name',name.trim());
+  // Sync to Firestore devices collection
+  if(db&&fid&&name.trim()){
+    db.collection('families').doc(fid).collection('devices').doc('web_user')
+      .set({name:name.trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+  }
+}
+
+function toggleReminderCfg(key){
+  var cfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
+  cfg[key]=!cfg[key];
+  if(cfg[key]===undefined)cfg[key]=false;
+  localStorage.setItem('reminder_cfg',JSON.stringify(cfg));
+  // Sync to Firestore
+  syncReminderCfg(cfg);
+  renderSettings();
+}
+
+function setReminderThreshold(key,val){
+  var cfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
+  cfg[key]=val;
+  localStorage.setItem('reminder_cfg',JSON.stringify(cfg));
+  syncReminderCfg(cfg);
+  renderSettings();
+}
+
+function syncReminderCfg(cfg){
+  if(!db||!fid)return;
+  db.collection('families').doc(fid).collection('settings').doc('notifications').set(cfg,{merge:true});
+}
+
+function dismissReminder(key){
+  dismissedReminders[key]=true;
+  renderHomeStats();
 }
 
 function markMedicineGiven(medId,slot){
@@ -1447,8 +1496,24 @@ function renderSettings(){
     +'</div></div>';
   h+='</div>';
   h+='<div class="stats-section"><div class="section-label">Family</div>';
+  var savedName=localStorage.getItem('caregiver_name')||'';
+  h+='<div class="toggle-row"><div><div class="tr-label">👤 Your name</div><div style="font-size:0.75rem;color:var(--muted)">Shown to partner when you log an event</div></div>';
+  h+='<input id="caregiver-name-input" type="text" value="'+savedName+'" placeholder="e.g. Daria, Mom, Nanny" onchange="saveCaregiverName(this.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:0.9rem;width:160px"/></div>';
   h+='<div style="padding:10px 0;color:var(--muted);font-size:0.9rem">Code: <strong style="color:var(--text)">'+fid+'</strong></div>';
   h+='<div class="change-btn" onclick="disconnect()" style="font-size:0.85rem">Change family code</div>';
+  h+='</div>';
+  h+='<div class="stats-section"><div class="section-label">Reminders</div>';
+  var remCfg=JSON.parse(localStorage.getItem('reminder_cfg')||'{}');
+  var feedEn=remCfg.feedEnabled!==false,diaperEn=remCfg.diaperEnabled!==false;
+  var feedH=remCfg.feedThresholdHours||3,diaperH=remCfg.diaperThresholdHours||3;
+  h+='<div class="toggle-row"><div><div class="tr-label">🍼 Feed reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+feedH+'h since last feed</div></div>';
+  h+='<div class="tr-toggle '+(feedEn?'on':'')+'" onclick="toggleReminderCfg(\'feedEnabled\')" ></div></div>';
+  if(feedEn){h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center"><span style="font-size:0.85rem;color:var(--muted)">After:</span>';
+    [2,3,4].forEach(function(h2){h+='<button onclick="setReminderThreshold(\'feedThresholdHours\','+h2+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(feedH===h2?'var(--feed)':'var(--border)')+';background:'+(feedH===h2?'rgba(249,115,22,0.12)':'none')+';color:'+(feedH===h2?'var(--feed)':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(feedH===h2?'700':'400')+'">'+(h2)+'h</button>';});h+='</div>';}
+  h+='<div class="toggle-row"><div><div class="tr-label">🧷 Diaper reminder</div><div style="font-size:0.75rem;color:var(--muted)">Remind after '+diaperH+'h since last change</div></div>';
+  h+='<div class="tr-toggle '+(diaperEn?'on':'')+'" onclick="toggleReminderCfg(\'diaperEnabled\')" ></div></div>';
+  if(diaperEn){h+='<div style="padding:4px 0 10px;display:flex;gap:8px;align-items:center"><span style="font-size:0.85rem;color:var(--muted)">After:</span>';
+    [2,3,4].forEach(function(h2){h+='<button onclick="setReminderThreshold(\'diaperThresholdHours\','+h2+')" style="padding:4px 12px;border-radius:16px;border:2px solid '+(diaperH===h2?'#6366f1':'var(--border)')+';background:'+(diaperH===h2?'rgba(99,102,241,0.12)':'none')+';color:'+(diaperH===h2?'#6366f1':'var(--muted)')+';cursor:pointer;font-size:0.85rem;font-weight:'+(diaperH===h2?'700':'400')+'">'+(h2)+'h</button>';});h+='</div>';}
   h+='</div>';
   document.getElementById('main').innerHTML=h;
 }
