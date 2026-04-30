@@ -437,6 +437,59 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+        // Log buttons 2x2 grid
+        Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("What's happening?",
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade500,
+                          letterSpacing: 0.5)),
+                  const SizedBox(height: 12),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 2.4,
+                    children: [
+                      if (cfg.trackFeed)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
+                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
+                            color: kFeedColor,
+                            active: ongoing?.type == EventType.feed,
+                            onTap: () => _openLog(EventType.feed)),
+                      if (cfg.trackDiaper)
+                        _LogBtn(
+                            emoji: '🧷',
+                            label: 'Diaper',
+                            color: kDiaperColor,
+                            onTap: () => _openLog(EventType.diaper)),
+                      if (cfg.trackSleep)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
+                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
+                            color: kSleepColor,
+                            active: ongoing?.type == EventType.sleep,
+                            onTap: () => _openLog(EventType.sleep)),
+                      if (cfg.trackPump)
+                        _LogBtn(
+                            emoji: '🥛',
+                            label: 'Pump',
+                            color: kPumpColor,
+                            onTap: () => _openLog(EventType.pump)),
+                    ],
+                  ),
+                ])),
+
+      ]),
+
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -542,59 +595,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                       ],
                     ]))),
-
-        // Log buttons 2x2 grid
-        Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("What's happening?",
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade500,
-                          letterSpacing: 0.5)),
-                  const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 2.4,
-                    children: [
-                      if (cfg.trackFeed)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
-                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
-                            color: kFeedColor,
-                            active: ongoing?.type == EventType.feed,
-                            onTap: () => _openLog(EventType.feed)),
-                      if (cfg.trackDiaper)
-                        _LogBtn(
-                            emoji: '🧷',
-                            label: 'Diaper',
-                            color: kDiaperColor,
-                            onTap: () => _openLog(EventType.diaper)),
-                      if (cfg.trackSleep)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
-                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
-                            color: kSleepColor,
-                            active: ongoing?.type == EventType.sleep,
-                            onTap: () => _openLog(EventType.sleep)),
-                      if (cfg.trackPump)
-                        _LogBtn(
-                            emoji: '🥛',
-                            label: 'Pump',
-                            color: kPumpColor,
-                            onTap: () => _openLog(EventType.pump)),
-                    ],
-                  ),
-                ])),
-
-      ]),
     );
   }
 
@@ -720,23 +720,14 @@ class _FeedStatCard extends StatelessWidget {
                   ]);
                 }),
               if (recommendedSide != null) ...[
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: kFeedColor.withOpacity(0.12),
-                  ),
-                  child: Text('🤱 Next: ${recommendedSide!.toUpperCase()}',
-                      style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: kFeedColor)),
+                const SizedBox(height: 4),
+                Text(
+                  '🤱 Next: ' + recommendedSide!.toUpperCase(),
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: kFeedColor.withOpacity(0.8)),
                 ),
-                Text(recommendationReason ?? '',
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.grey.shade500)),
               ],
             ])),
       ])),
@@ -858,21 +849,37 @@ class _PumpStockCard extends StatelessWidget {
                 const Text('Pump Stock',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 4),
-                if (sorted.isEmpty)
-                  Text('Stock: empty',
-                      style: TextStyle(fontSize: 13, color: Colors.grey.shade400))
-                else
-                  ...sorted.map((u) {
-                    final p = u['event'] as BabyEvent;
-                    final rem = u['remaining'] as int;
-                    final idStr = p.pumpId ?? '—';
-                    final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
-                    final emoji = storageEmoji[u['storage'] as String? ?? 'room'] ?? '🏠';
-                    final exp = p.expiresAt != null ? ' · expires: ${_expiry(p.expiresAt)}' : '';
-                    return Text(
-                        '$emoji #$idStr · ${rem}ml$exp',
+                Builder(builder: (context) {
+                  if (sorted.isEmpty) {
+                    return Text('Stock: empty',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
-                  }),
+                  }
+                  // Sum ml by storage type, only show types with stock
+                  final storageMap = <String, int>{};
+                  for (final u in sorted) {
+                    final storage = (u['storage'] as String?) ?? 'room';
+                    final rem = u['remaining'] as int;
+                    if (rem > 0) {
+                      storageMap[storage] = (storageMap[storage] ?? 0) + rem;
+                    }
+                  }
+                  if (storageMap.isEmpty) {
+                    return Text('Stock: empty',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
+                  }
+                  final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
+                  final order = ['room', 'fridge', 'freezer'];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: order
+                        .where((s) => storageMap.containsKey(s))
+                        .map((s) => Text(
+                              (storageEmoji[s] ?? '🏠') + ' ' + (storageMap[s] ?? 0).toString() + 'ml',
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+                            ))
+                        .toList(),
+                  );
+                }),
               ])),
         ]),
       ),
