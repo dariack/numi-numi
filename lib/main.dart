@@ -254,7 +254,6 @@ class _MainAppState extends State<MainApp> {
         label: 'Insights',
         builder: () => InsightsAccordionScreen(
           service: _service,
-          medicineService: _medicineService,
         ),
       ),
       _NavTab(
@@ -270,6 +269,7 @@ class _MainAppState extends State<MainApp> {
           familyId: widget.familyId,
           onChangeFamilyId: widget.onChangeFamilyId,
           reminderService: _reminderService,
+          medicineService: _medicineService,
         ),
       ),
     ];

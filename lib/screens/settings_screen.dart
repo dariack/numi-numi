@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/reminder_service.dart';
+import 'medicine_screen.dart';
+import '../services/medicine_service.dart';
 import '../services/notification_service.dart';
 import '../models/reminder_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   final SettingsService settingsService;
   final ReminderService? reminderService;
+  final MedicineService? medicineService;
   final String familyId;
   final VoidCallback onChangeFamilyId;
 
@@ -16,6 +20,7 @@ class SettingsScreen extends StatefulWidget {
     super.key,
     required this.settingsService,
     this.reminderService,
+    this.medicineService,
     required this.familyId,
     required this.onChangeFamilyId,
   });
@@ -366,6 +371,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           _buildReminderSection(context),
           const SizedBox(height: 24),
+          // Medicine section
+          if (widget.medicineService != null) ...[
+            Text('Medicine',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade500, letterSpacing: 0.5)),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => MedicineScreen(service: widget.medicineService!)));
+              },
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey.shade800 : Colors.grey.shade200),
+                ),
+                child: Row(children: [
+                  const Text('💊', style: TextStyle(fontSize: 22)),
+                  const SizedBox(width: 12),
+                  const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Medicine Schedule', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                    Text('Set up medicines, doses & schedules',
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ])),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade500),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
           Text('Family',
               style: TextStyle(
                   fontSize: 13,
