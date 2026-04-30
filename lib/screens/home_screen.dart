@@ -469,6 +469,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ])),
 
+        // ── Ongoing action banner (top of page, compact but prominent) ──
+        if (ongoing != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: _OngoingBannerCompact(
+              event: ongoing!,
+              onTap: () => _openLog(ongoing!.type),
+            ),
+          ),
+
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -483,14 +493,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Colors.grey.shade500,
                               letterSpacing: 0.5)),
                       const SizedBox(height: 10),
-
-
-                      if (ongoing != null) ...[
-                        _OngoingBanner(
-                            event: ongoing,
-                            onTap: () => _openLog(ongoing.type)),
-                        const SizedBox(height: 10),
-                      ],
 
                       // Expiration warnings
                       ...expirationWarnings.map((w) {
@@ -857,6 +859,60 @@ class _PumpStockCard extends StatelessWidget {
                   );
                 }),
               ])),
+        ]),
+      ),
+    );
+  }
+}
+
+// Compact prominent banner for top of page
+class _OngoingBannerCompact extends StatelessWidget {
+  final BabyEvent event;
+  final VoidCallback onTap;
+  const _OngoingBannerCompact({required this.event, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final dur = DateTime.now().difference(event.startTime);
+    final color = event.type == EventType.sleep ? kSleepColor : kFeedColor;
+    final fmtDur = dur.inHours > 0
+        ? dur.inHours.toString() + 'h ' + dur.inMinutes.remainder(60).toString() + 'm'
+        : dur.inMinutes.toString() + 'm';
+    final sideText = event.side != null ? ' · ' + event.side! : '';
+    final emoji = event.type == EventType.sleep ? '😴' : '🍼';
+    final label = event.type == EventType.sleep ? 'Sleeping' : 'Feeding' + sideText;
+
+    return GestureDetector(
+      onTap: () { HapticFeedback.mediumImpact(); onTap(); },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: color.withOpacity(0.1),
+          border: Border.all(color: color, width: 1.5),
+        ),
+        child: Row(children: [
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          Expanded(child: Row(children: [
+            Text(label,
+                style: TextStyle(fontWeight: FontWeight.w700,
+                    fontSize: 13, color: color)),
+            const SizedBox(width: 6),
+            Text('· ' + fmtDur,
+                style: TextStyle(fontSize: 12, color: color.withOpacity(0.7))),
+          ])),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: color.withOpacity(0.15),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Text('Tap to end',
+                style: TextStyle(fontSize: 11, color: color,
+                    fontWeight: FontWeight.w600)),
+          ),
         ]),
       ),
     );
