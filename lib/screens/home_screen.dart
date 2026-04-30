@@ -470,7 +470,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ])),
 
       ]),
-
         SafeArea(
             child: Container(
                 color: statusBg,
