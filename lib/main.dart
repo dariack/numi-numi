@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/insights_screen.dart';
+import 'screens/insights_accordion_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/medicine_screen.dart';
 import 'screens/sleep_analysis_screen.dart';
@@ -226,7 +227,7 @@ class _MainAppState extends State<MainApp> {
   }
 
   List<_NavTab> _buildTabs() {
-    final tabs = <_NavTab>[
+    return [
       _NavTab(
         id: 'home', icon: Icons.home_outlined, selectedIcon: Icons.home,
         label: 'Home',
@@ -240,69 +241,41 @@ class _MainAppState extends State<MainApp> {
             final idx = tabs.indexWhere((t) => t.id == tabId);
             if (idx >= 0 && mounted) setState(() => _tab = idx);
           },
+          onShowHistory: () {
+            if (mounted) setState(() => _tab = 0);
+            Navigator.push(context, MaterialPageRoute(
+              builder: (_) => HistoryScreen(
+                service: _service,
+                medicineService: _medicineService,
+              ),
+            ));
+          },
         ),
       ),
       _NavTab(
-        id: 'history', icon: Icons.history_outlined, selectedIcon: Icons.history,
-        label: 'History',
-        builder: () => HistoryScreen(service: _service, medicineService: _medicineService),
+        id: 'insights', icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,
+        label: 'Insights',
+        builder: () => InsightsAccordionScreen(
+          service: _service,
+          medicineService: _medicineService,
+        ),
       ),
-    ];
-
-    // Per-action tabs — only if tracked
-    if (_settings.trackFeed) {
-      tabs.add(_NavTab(
-        id: 'feed', icon: Icons.restaurant_outlined, selectedIcon: Icons.restaurant,
-        label: 'Feed',
-        builder: () => ActionTabScreen(service: _service, type: EventType.feed),
-      ));
-    }
-    if (_settings.trackSleep) {
-      tabs.add(_NavTab(
+      _NavTab(
         id: 'sleep', icon: Icons.bedtime_outlined, selectedIcon: Icons.bedtime,
         label: 'Sleep',
-        builder: () => ActionTabScreen(service: _service, type: EventType.sleep),
-      ));
-    }
-    if (_settings.trackDiaper) {
-      tabs.add(_NavTab(
-        id: 'diaper', icon: Icons.baby_changing_station_outlined, selectedIcon: Icons.baby_changing_station,
-        label: 'Diaper',
-        builder: () => ActionTabScreen(service: _service, type: EventType.diaper),
-      ));
-    }
-    if (_settings.trackPump) {
-      tabs.add(_NavTab(
-        id: 'pump', icon: Icons.local_drink_outlined, selectedIcon: Icons.local_drink,
-        label: 'Pump',
-        builder: () => ActionTabScreen(service: _service, type: EventType.pump),
-      ));
-    }
-
-    tabs.add(_NavTab(
-      id: 'sleep_analysis', icon: Icons.bedtime_outlined, selectedIcon: Icons.bedtime,
-      label: 'Sleep',
-      builder: () => SleepAnalysisScreen(service: _service),
-    ));
-
-    tabs.add(_NavTab(
-      id: 'medicine', icon: Icons.medication_outlined, selectedIcon: Icons.medication,
-      label: 'Medicine',
-      builder: () => MedicineScreen(service: _medicineService),
-    ));
-
-    tabs.add(_NavTab(
-      id: 'settings', icon: Icons.settings_outlined, selectedIcon: Icons.settings,
-      label: 'Settings',
-      builder: () => SettingsScreen(
-        settingsService: _settingsService,
-        familyId: widget.familyId,
-        onChangeFamilyId: widget.onChangeFamilyId,
-        reminderService: _reminderService,
+        builder: () => SleepAnalysisScreen(service: _service),
       ),
-    ));
-
-    return tabs;
+      _NavTab(
+        id: 'settings', icon: Icons.settings_outlined, selectedIcon: Icons.settings,
+        label: 'Settings',
+        builder: () => SettingsScreen(
+          settingsService: _settingsService,
+          familyId: widget.familyId,
+          onChangeFamilyId: widget.onChangeFamilyId,
+          reminderService: _reminderService,
+        ),
+      ),
+    ];
   }
 
   @override
