@@ -30,10 +30,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<List<BabyEvent>>? _streamSub;
-  String? _myDeviceId; // to detect partner events
-  BabyEvent? _partnerLastEvent; // most recent event NOT by this device
-  DateTime? _partnerEventSeen; // when we first saw it (for fade-out)
-  final Map<String, String> _deviceNames = {}; // deviceId -> caregiver name
+  String? _myDeviceId;
+  BabyEvent? _partnerLastEvent;
+  DateTime? _partnerEventSeen;
+  final Map<String, String> _deviceNames = {};
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
   bool _loading = true;
@@ -53,8 +53,8 @@ class _HomeScreenState extends State<HomeScreen> {
         WidgetService(firestore: widget.service, settings: widget.settings);
     _subscribeStream();
     _subscribeMedicines();
-    // Tick timer is set up in _subscribeMedicines (60s interval)
     _loadDeviceId();
+    // Tick timer is set up in _subscribeMedicines (60s interval)
   }
 
   Future<void> _loadDeviceId() async {
@@ -64,46 +64,31 @@ class _HomeScreenState extends State<HomeScreen> {
       id = 'device_' + DateTime.now().millisecondsSinceEpoch.toString();
       await prefs.setString('device_id', id);
     }
-    // Register this device's name in Firestore so partner can see it
     final name = prefs.getString('caregiver_name') ?? '';
-    if (name.isNotEmpty) {
-      widget.service.updateDeviceName(id!, name);
-    }
-    // Load all device names for this family
+    if (name.isNotEmpty) widget.service.updateDeviceName(id!, name);
     final names = await widget.service.getDeviceNames();
     if (mounted) setState(() { _myDeviceId = id; _deviceNames.addAll(names); });
   }
 
   void _checkPartnerActivity(List<BabyEvent> events) {
     if (_myDeviceId == null) return;
-    // Find most recent event not logged by this device
-    // "app" = logged on mobile, "web" = logged on web
-    // We use device_id stored in createdBy for our own device
     final recent = events.where((e) =>
         e.createdBy != null &&
         e.createdBy != _myDeviceId &&
         DateTime.now().difference(e.startTime).inMinutes < 10).toList();
     if (recent.isEmpty) {
-      if (mounted && _partnerLastEvent != null) {
+      if (mounted && _partnerLastEvent != null)
         setState(() { _partnerLastEvent = null; _partnerEventSeen = null; });
-      }
       return;
     }
     final newest = recent.first;
-    if (newest.id != _partnerLastEvent?.id) {
-      if (mounted) setState(() {
-        _partnerLastEvent = newest;
-        _partnerEventSeen = DateTime.now();
-      });
-    }
+    if (newest.id != _partnerLastEvent?.id)
+      if (mounted) setState(() { _partnerLastEvent = newest; _partnerEventSeen = DateTime.now(); });
   }
 
-  // Returns list of contextual suggestions
   List<String> _getSuggestions(Map<String, dynamic> stats) {
     final now = DateTime.now();
     final suggestions = <String>[];
-
-    // Feed suggestion
     final lastFeed = stats['lastFeed'] as BabyEvent?;
     if (lastFeed != null) {
       final feedEnd = lastFeed.endTime ?? lastFeed.startTime;
@@ -111,61 +96,59 @@ class _HomeScreenState extends State<HomeScreen> {
       final avgGap = (stats['avgFeedGapMin'] as num?)?.toInt() ?? 180;
       if (feedMins >= (avgGap * 0.8).round() && feedMins < avgGap * 1.5) {
         final h = feedMins ~/ 60; final m = feedMins % 60;
-        final feedStr = (h > 0 ? h.toString() + 'h ' : '') + m.toString() + 'm since last feed — usually every ' + (avgGap ~/ 60).toString() + 'h';
-        suggestions.add('⏰ ' + feedStr);
+        final t = (h > 0 ? h.toString() + 'h ' : '') + m.toString() + 'm';
+        suggestions.add('⏰ ' + t + ' since last feed — usually every ' + (avgGap ~/ 60).toString() + 'h');
       }
     }
-
-    // Diaper suggestion
     final lastDiaper = stats['lastDiaper'] as BabyEvent?;
     if (lastDiaper != null) {
       final diaperMins = now.difference(lastDiaper.startTime).inMinutes;
       if (diaperMins >= 180) {
         final h = diaperMins ~/ 60; final m = diaperMins % 60;
-        final diaperStr = h.toString() + 'h ' + (m > 0 ? m.toString() + 'm ' : '') + 'since last diaper — time to check?';
-        suggestions.add('🧷 ' + diaperStr);
+        suggestions.add('🧷 ' + h.toString() + 'h ' + (m > 0 ? m.toString() + 'm ' : '') + 'since last diaper check');
       }
     }
-
-    // Pump expiry warnings
     final stock = stats['pumpStock'] as Map<String, List<Map<String, dynamic>>>?;
     if (stock != null) {
-      // Room temp: warn 1h before expiry
       for (final item in (stock['room'] ?? [])) {
         final exp = item['expires'] as DateTime?;
         if (exp != null) {
           final minsLeft = exp.difference(now).inMinutes;
           if (minsLeft > 0 && minsLeft <= 60) {
-            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
-            suggestions.add('⚠️ Room temp milk $id expires in ${minsLeft}m');
+            final id = item['pumpId'] != null ? '#' + item['pumpId'].toString() : '';
+            suggestions.add('⚠️ Room temp milk ' + id + ' expires in ' + minsLeft.toString() + 'm');
           }
         }
       }
-      // Fridge: warn 24h before
       for (final item in (stock['fridge'] ?? [])) {
         final exp = item['expires'] as DateTime?;
         if (exp != null) {
           final hoursLeft = exp.difference(now).inHours;
           if (hoursLeft > 0 && hoursLeft <= 24) {
-            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
-            suggestions.add('🧊 Fridge milk $id expires in ${hoursLeft}h — use soon');
+            final id = item['pumpId'] != null ? '#' + item['pumpId'].toString() : '';
+            suggestions.add('🧊 Fridge milk ' + id + ' expires in ' + hoursLeft.toString() + 'h — use soon');
           }
         }
       }
-      // Freezer: warn 1 month (30 days) before
       for (final item in (stock['freezer'] ?? [])) {
         final exp = item['expires'] as DateTime?;
         if (exp != null) {
           final daysLeft = exp.difference(now).inDays;
           if (daysLeft > 0 && daysLeft <= 30) {
-            final id = item['pumpId'] != null ? '#${item['pumpId']}' : '';
-            suggestions.add('🧊 Freezer milk $id expires in ${daysLeft}d');
+            final id = item['pumpId'] != null ? '#' + item['pumpId'].toString() : '';
+            suggestions.add('🧊 Freezer milk ' + id + ' expires in ' + daysLeft.toString() + 'd');
           }
         }
       }
     }
-
     return suggestions;
+  }
+
+  String _timeAgo(DateTime t) {
+    final mins = DateTime.now().difference(t).inMinutes;
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins.toString() + 'm ago';
+    return (mins ~/ 60).toString() + 'h ' + (mins % 60).toString() + 'm ago';
   }
 
   void _subscribeMedicines() {
@@ -199,8 +182,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _widgetService.update();
       // Reschedule reminders whenever event list changes (catches partner actions too)
       widget.reminderService?.rescheduleAll(events);
-      // Check for partner activity
-      _checkPartnerActivity(events);
     }, onError: (_) {
       if (mounted) setState(() => _loading = false);
     });
@@ -221,8 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ongoing: (ongoing != null && ongoing.type == type) ? ongoing : null),
     );
     if (result != null) {
-      HapticFeedback.lightImpact(); // confirm haptic
-      // Stream auto-updates the UI — just show snackbar
+      HapticFeedback.lightImpact();
       if (!mounted) return;
       String msg;
       if (result is BabyEvent) {
@@ -307,108 +287,6 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) => _events);
       },
       child: ListView(padding: EdgeInsets.zero, children: [
-        // ── Partner activity strip ────────────────────────────
-        if (_partnerLastEvent != null) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: AnimatedOpacity(
-              opacity: _partnerEventSeen != null &&
-                  DateTime.now().difference(_partnerEventSeen!).inMinutes >= 10 ? 0 : 1,
-              duration: const Duration(seconds: 2),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: Colors.grey.shade800.withOpacity(0.5),
-                ),
-                child: Row(children: [
-                  const Text('🤝', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') + ' logged ' + _partnerLastEvent!.displayName + ' ' + _timeAgo(_partnerLastEvent!.startTime),
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                  )),
-                ]),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-
-        // ── Log buttons — big 2×2 grid ──────────────────────────
-        Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("What's happening?",
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade500,
-                          letterSpacing: 0.5)),
-                  const SizedBox(height: 12),
-                  // 2×2 grid — always fill width evenly
-                  GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 2.4,
-                    children: [
-                      if (cfg.trackFeed)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
-                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
-                            color: kFeedColor,
-                            active: ongoing?.type == EventType.feed,
-                            onTap: () => _openLog(EventType.feed)),
-                      if (cfg.trackDiaper)
-                        _LogBtn(
-                            emoji: '🧷',
-                            label: 'Diaper',
-                            color: kDiaperColor,
-                            onTap: () => _openLog(EventType.diaper)),
-                      if (cfg.trackSleep)
-                        _LogBtn(
-                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
-                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
-                            color: kSleepColor,
-                            active: ongoing?.type == EventType.sleep,
-                            onTap: () => _openLog(EventType.sleep)),
-                      if (cfg.trackPump)
-                        _LogBtn(
-                            emoji: '🥛',
-                            label: 'Pump',
-                            color: kPumpColor,
-                            onTap: () => _openLog(EventType.pump)),
-                    ],
-                  ),
-                ])),
-
-        // ── Contextual suggestion strip ──────────────────────────
-        Builder(builder: (context) {
-          final suggestions = _getSuggestions(_stats);
-          if (suggestions.isEmpty) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Column(children: suggestions.map((s) => Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
-                border: Border.all(color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.3) : kFeedColor.withOpacity(0.2)),
-              ),
-              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            )).toList()),
-          );
-        }),
-
-      ]),
-
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -556,14 +434,106 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                       ],
                     ]))),
-    );
-  }
 
-  String _timeAgo(DateTime t) {
-    final mins = DateTime.now().difference(t).inMinutes;
-    if (mins < 1) return 'just now';
-    if (mins < 60) return '${mins}m ago';
-    return '${mins ~/ 60}h ${mins % 60}m ago';
+        // Partner activity strip
+        if (_partnerLastEvent != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: Colors.grey.shade800.withOpacity(0.5),
+              ),
+              child: Row(children: [
+                const Text('🤝', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
+                      ' logged ' + _partnerLastEvent!.displayName +
+                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                )),
+              ]),
+            ),
+          ),
+
+        // Log buttons 2x2 grid
+        Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("What's happening?",
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade500,
+                          letterSpacing: 0.5)),
+                  const SizedBox(height: 12),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 2.4,
+                    children: [
+                      if (cfg.trackFeed)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
+                            label: ongoing?.type == EventType.feed ? 'End Feed' : 'Feed',
+                            color: kFeedColor,
+                            active: ongoing?.type == EventType.feed,
+                            onTap: () => _openLog(EventType.feed)),
+                      if (cfg.trackDiaper)
+                        _LogBtn(
+                            emoji: '🧷',
+                            label: 'Diaper',
+                            color: kDiaperColor,
+                            onTap: () => _openLog(EventType.diaper)),
+                      if (cfg.trackSleep)
+                        _LogBtn(
+                            emoji: ongoing?.type == EventType.sleep ? '⏰' : '😴',
+                            label: ongoing?.type == EventType.sleep ? 'End Sleep' : 'Sleep',
+                            color: kSleepColor,
+                            active: ongoing?.type == EventType.sleep,
+                            onTap: () => _openLog(EventType.sleep)),
+                      if (cfg.trackPump)
+                        _LogBtn(
+                            emoji: '🥛',
+                            label: 'Pump',
+                            color: kPumpColor,
+                            onTap: () => _openLog(EventType.pump)),
+                    ],
+                  ),
+                ])),
+
+        // Contextual suggestion strip
+        Builder(builder: (context) {
+          final suggestions = _getSuggestions(_stats);
+          if (suggestions.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(children: suggestions.map((s) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
+                border: Border.all(
+                    color: s.startsWith('⚠️')
+                        ? Colors.orange.withOpacity(0.3)
+                        : kFeedColor.withOpacity(0.2)),
+              ),
+              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            )).toList()),
+          );
+        }),
+
+      ]),
+    );
   }
 
   double _btnWidth(BuildContext context, TrackerSettings cfg) {
@@ -794,11 +764,11 @@ class _PumpStockCard extends StatelessWidget {
 
   String _expiry(DateTime? d) {
     if (d == null) return '';
-    return '${d.day.toString().padLeft(2,"0")}/${d.month.toString().padLeft(2,"0")} ${d.hour.toString().padLeft(2,"0")}:${d.minute.toString().padLeft(2,"0")}';
+    return '${d.day.toString().padLeft(2, "0")}/${d.month.toString().padLeft(2, "0")} ${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
   }
 
   String _pumped(DateTime d) =>
-      '${d.day.toString().padLeft(2,"0")}/${d.month.toString().padLeft(2,"0")} ${d.hour.toString().padLeft(2,"0")}:${d.minute.toString().padLeft(2,"0")}';
+      '${d.day.toString().padLeft(2, "0")}/${d.month.toString().padLeft(2, "0")} ${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
 
   @override
   Widget build(BuildContext context) {
