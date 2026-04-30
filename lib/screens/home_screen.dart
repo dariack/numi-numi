@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   BabyEvent? _partnerLastEvent;
   DateTime? _partnerEventSeen;
   final Map<String, String> _deviceNames = {};
+  final Set<String> _dismissedReminders = {};
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
   bool _loading = true;
@@ -287,15 +288,74 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) => _events);
       },
       child: ListView(padding: EdgeInsets.zero, children: [
-        // ── Medicine reminders — TOP of page, persist until given ──
-        if (_pendingReminders.isNotEmpty)
+
+        // ── 1. Partner activity strip — very top ─────────────────
+        if (_partnerLastEvent != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Column(children: _pendingReminders.map((r) {
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: Colors.grey.shade800.withOpacity(0.5),
+              ),
+              child: Row(children: [
+                const Text('🤝', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
+                      ' logged ' + _partnerLastEvent!.displayName +
+                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                )),
+              ]),
+            ),
+          ),
+
+        // ── 2. Contextual suggestion strip ───────────────────────
+        Builder(builder: (context) {
+          final suggestions = _getSuggestions(_stats);
+          if (suggestions.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Column(children: suggestions.map((s) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
+                border: Border.all(
+                    color: s.startsWith('⚠️')
+                        ? Colors.orange.withOpacity(0.3)
+                        : kFeedColor.withOpacity(0.2)),
+              ),
+              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            )).toList()),
+          );
+        }),
+
+        // ── 3. Medicine reminders — persist until given/dismissed ─
+        Builder(builder: (context) {
+          final visible = _pendingReminders.where((r) {
+            final med = r['medicine'] as Medicine;
+            final slot = r['scheduledTime'] as String;
+            final slotDate = r['slotDate'] as DateTime?;
+            final key = med.id + '_' + slot + '_' +
+                (slotDate != null ? slotDate.day.toString() + '_' + slotDate.month.toString() : '');
+            return !_dismissedReminders.contains(key);
+          }).toList();
+          if (visible.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Column(children: visible.map((r) {
               final med = r['medicine'] as Medicine;
               final slot = r['scheduledTime'] as String;
-              final dayLabel = r['dayLabel'] as String? ?? 'Today';
+              final slotDate = r['slotDate'] as DateTime?;
+              final dayLabel = r['dayLabel'] as String? ?? 'Today at ' + slot;
               final isOverdue = r['isOverdue'] as bool? ?? false;
+              final dismissKey = med.id + '_' + slot + '_' +
+                  (slotDate != null ? slotDate.day.toString() + '_' + slotDate.month.toString() : '');
               final borderCol = isOverdue ? Colors.orange : Colors.purple;
               final bgCol = isOverdue
                   ? Colors.orange.withOpacity(0.1)
@@ -316,14 +376,29 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('Give ' + med.displayName,
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: borderCol)),
-                      Text(dayLabel + ' at ' + slot + (isOverdue ? ' — overdue' : ''),
+                      Text(dayLabel,
                           style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.8))),
                     ])),
+                    const SizedBox(width: 4),
+                    // Dismiss (X) button — subtle
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        setState(() => _dismissedReminders.add(dismissKey));
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(Icons.close, size: 16, color: borderCol.withOpacity(0.5)),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    // Given button
                     TextButton(
                       onPressed: () async {
                         HapticFeedback.lightImpact();
                         await widget.medicineService!.markGiven(
-                            medicine: med, scheduledTime: slot);
+                            medicine: med, scheduledTime: slot,
+                            givenAt: slotDate);
                         final reminders = await widget.medicineService!
                             .getPendingReminders(_medicines);
                         if (mounted) setState(() => _pendingReminders = reminders);
@@ -331,62 +406,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextButton.styleFrom(
                         backgroundColor: borderCol.withOpacity(0.15),
                         foregroundColor: borderCol,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ]),
                 ),
               );
             }).toList()),
-          ),
-
-        // ── Contextual suggestion strip ──────────────────────────
-        Builder(builder: (context) {
-          final suggestions = _getSuggestions(_stats);
-          if (suggestions.isEmpty) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Column(children: suggestions.map((s) => Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
-                border: Border.all(
-                    color: s.startsWith('⚠️')
-                        ? Colors.orange.withOpacity(0.3)
-                        : kFeedColor.withOpacity(0.2)),
-              ),
-              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            )).toList()),
           );
         }),
-
-        // ── Partner activity strip (top of page) ────────────────
-        if (_partnerLastEvent != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: Colors.grey.shade800.withOpacity(0.5),
-              ),
-              child: Row(children: [
-                const Text('🤝', style: TextStyle(fontSize: 14)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(
-                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
-                      ' logged ' + _partnerLastEvent!.displayName +
-                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                )),
-              ]),
-            ),
-          ),
 
         SafeArea(
             child: Container(

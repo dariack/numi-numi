@@ -46,6 +46,7 @@ class MedicineService {
   Future<void> markGiven({
     required Medicine medicine,
     String? scheduledTime,
+    DateTime? givenAt,
     String givenBy = 'app',
   }) async {
     await _given.add(MedicineGiven(
@@ -53,7 +54,7 @@ class MedicineService {
       medicineId: medicine.id,
       medicineName: medicine.name,
       dose: medicine.dose,
-      givenAt: DateTime.now(),
+      givenAt: givenAt ?? DateTime.now(),
       givenBy: givenBy,
       scheduledTime: scheduledTime,
     ).toFirestore());
@@ -94,12 +95,23 @@ class MedicineService {
 
     final pending = <Map<String, dynamic>>[];
 
+    // Day name helper
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    String fmtSlotLabel(DateTime slotDate, String timeSlot, int dayOffset) {
+      final d = slotDate.day.toString().padLeft(2, "0");
+      final m = slotDate.month.toString().padLeft(2, "0");
+      final dayName = dayNames[slotDate.weekday - 1];
+      if (dayOffset == 0) return 'Today at ' + timeSlot;
+      if (dayOffset == 1) return 'Yesterday (' + dayName + ' ' + d + '/' + m + ') at ' + timeSlot;
+      return dayName + ' ' + d + '/' + m + ' at ' + timeSlot;
+    }
+
     for (final med in medicines) {
       if (!med.active) continue;
       if (med.scheduleType == ScheduleType.asNeeded) continue;
 
-      // Check each of the past 2 days for missed doses
-      for (int dayOffset = 1; dayOffset >= 0; dayOffset--) {
+      // Check past 3 days — catches doses missed across midnight reliably
+      for (int dayOffset = 2; dayOffset >= 0; dayOffset--) {
         final slotDate = DateTime(now.year, now.month, now.day - dayOffset);
 
         // For specificDays: check if slotDate is a valid day
@@ -121,10 +133,7 @@ class MedicineService {
           // Don't show slots older than 48h
           if (now.difference(slotTime).inHours > 48) continue;
 
-          // Check if already given for this exact slot (same date + time)
-          final slotDateStr = slotDate.year.toString() + '-' +
-              slotDate.month.toString().padLeft(2, "0") + '-' +
-              slotDate.day.toString().padLeft(2, "0");
+          // Check if already given for this exact slot
           final alreadyGiven = recentGiven.any((g) =>
               g.medicineId == med.id &&
               g.scheduledTime == timeSlot &&
@@ -133,14 +142,13 @@ class MedicineService {
               g.givenAt.day == slotDate.day);
           if (alreadyGiven) continue;
 
-          // Format slot date for display
           final isToday = dayOffset == 0;
-          final dayLabel = isToday ? 'Today' : 'Yesterday';
           pending.add({
             'medicine': med,
             'scheduledTime': timeSlot,
             'slotTime': slotTime,
-            'dayLabel': dayLabel,
+            'slotDate': slotDate,
+            'dayLabel': fmtSlotLabel(slotDate, timeSlot, dayOffset),
             'isOverdue': !isToday || now.difference(slotTime).inMinutes > 30,
           });
         }
