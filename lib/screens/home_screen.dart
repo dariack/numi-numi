@@ -469,7 +469,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ])),
 
-      ]),
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -574,7 +573,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             onTap: () => widget.onTabChange?.call('pump')),
                         const SizedBox(height: 8),
                       ],
-                    ]))),
+                    ]))),,
+      ]),
     );
   }
 
@@ -829,34 +829,30 @@ class _PumpStockCard extends StatelessWidget {
                 const Text('Pump Stock',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 4),
-                Builder(builder: (context) {
+                Builder(builder: (_) {
                   if (sorted.isEmpty) {
                     return Text('Stock: empty',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }
-                  // Sum ml by storage type, only show types with stock
                   final storageMap = <String, int>{};
                   for (final u in sorted) {
                     final storage = (u['storage'] as String?) ?? 'room';
                     final rem = u['remaining'] as int;
-                    if (rem > 0) {
-                      storageMap[storage] = (storageMap[storage] ?? 0) + rem;
-                    }
+                    if (rem > 0) storageMap[storage] = (storageMap[storage] ?? 0) + rem;
                   }
                   if (storageMap.isEmpty) {
                     return Text('Stock: empty',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }
-                  final storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
-                  final order = ['room', 'fridge', 'freezer'];
+                  const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
+                  const order = ['room', 'fridge', 'freezer'];
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: order
                         .where((s) => storageMap.containsKey(s))
                         .map((s) => Text(
-                              (storageEmoji[s] ?? '🏠') + ' ' + (storageMap[s] ?? 0).toString() + 'ml',
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-                            ))
+                              (storageEmoji[s] ?? '🏠') + ' ' + storageMap[s]!.toString() + 'ml',
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade400)))
                         .toList(),
                   );
                 }),
