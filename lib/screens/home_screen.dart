@@ -287,6 +287,52 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) => _events);
       },
       child: ListView(padding: EdgeInsets.zero, children: [
+        // ── Contextual suggestion strip (top of page) ─────────
+        Builder(builder: (context) {
+          final suggestions = _getSuggestions(_stats);
+          if (suggestions.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(children: suggestions.map((s) => Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
+                border: Border.all(
+                    color: s.startsWith('⚠️')
+                        ? Colors.orange.withOpacity(0.3)
+                        : kFeedColor.withOpacity(0.2)),
+              ),
+              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            )).toList()),
+          );
+        }),
+
+        // ── Partner activity strip (top of page) ────────────────
+        if (_partnerLastEvent != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: Colors.grey.shade800.withOpacity(0.5),
+              ),
+              child: Row(children: [
+                const Text('🤝', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
+                      ' logged ' + _partnerLastEvent!.displayName +
+                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                )),
+              ]),
+            ),
+          ),
+
         SafeArea(
             child: Container(
                 color: statusBg,
@@ -302,30 +348,38 @@ class _HomeScreenState extends State<HomeScreen> {
                               letterSpacing: 0.5)),
                       const SizedBox(height: 10),
 
-                      // Medicine reminders
+                      // Medicine reminders — persist until given, stack if multiple
                       ..._pendingReminders.map((r) {
                         final med = r['medicine'] as Medicine;
                         final slot = r['scheduledTime'] as String;
+                        final dayLabel = r['dayLabel'] as String? ?? 'Today';
+                        final isOverdue = r['isOverdue'] as bool? ?? false;
+                        final borderCol = isOverdue ? Colors.orange : Colors.purple;
+                        final bgCol = isOverdue
+                            ? Colors.orange.withOpacity(0.1)
+                            : Colors.purple.withOpacity(0.1);
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
-                              color: Colors.purple.withOpacity(0.1),
-                              border: Border.all(color: Colors.purple, width: 2),
+                              color: bgCol,
+                              border: Border.all(color: borderCol, width: 2),
                             ),
                             child: Row(children: [
-                              const Text('💊', style: TextStyle(fontSize: 22)),
+                              Text(isOverdue ? '⚠️' : '💊',
+                                  style: const TextStyle(fontSize: 22)),
                               const SizedBox(width: 10),
                               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text('Give ${med.displayName}',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.purple)),
-                                Text('Scheduled: $slot',
-                                    style: TextStyle(fontSize: 12, color: Colors.purple.withOpacity(0.7))),
+                                Text('Give ' + med.displayName,
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: borderCol)),
+                                Text(dayLabel + ' at ' + slot + (isOverdue ? ' — overdue' : ''),
+                                    style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.8))),
                               ])),
                               TextButton(
                                 onPressed: () async {
+                                  HapticFeedback.lightImpact();
                                   await widget.medicineService!.markGiven(
                                       medicine: med, scheduledTime: slot);
                                   final reminders = await widget.medicineService!
@@ -333,8 +387,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (mounted) setState(() => _pendingReminders = reminders);
                                 },
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.purple.withOpacity(0.15),
-                                  foregroundColor: Colors.purple,
+                                  backgroundColor: borderCol.withOpacity(0.15),
+                                  foregroundColor: borderCol,
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
@@ -435,29 +489,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ]))),
 
-        // Partner activity strip
-        if (_partnerLastEvent != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: Colors.grey.shade800.withOpacity(0.5),
-              ),
-              child: Row(children: [
-                const Text('🤝', style: TextStyle(fontSize: 14)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(
-                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
-                      ' logged ' + _partnerLastEvent!.displayName +
-                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                )),
-              ]),
-            ),
-          ),
-
         // Log buttons 2x2 grid
         Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -508,29 +539,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ])),
-
-        // Contextual suggestion strip
-        Builder(builder: (context) {
-          final suggestions = _getSuggestions(_stats);
-          if (suggestions.isEmpty) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Column(children: suggestions.map((s) => Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
-                border: Border.all(
-                    color: s.startsWith('⚠️')
-                        ? Colors.orange.withOpacity(0.3)
-                        : kFeedColor.withOpacity(0.2)),
-              ),
-              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            )).toList()),
-          );
-        }),
 
       ]),
     );
