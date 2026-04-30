@@ -246,7 +246,7 @@ function renderHomeStats(){
   el.innerHTML=buildHomeStatsHtml();}
 
 function buildHomeStatsHtml(){
-  var s=computeHomeStats(),now=new Date(),h='';
+  var s=computeHomeStats(),now=new Date(),h='',ong=s.ong;
   // Medicine reminders
   getPendingReminders().forEach(function(r){
     var med=r.medicine,slot=r.scheduledTime;
