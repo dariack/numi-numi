@@ -58,6 +58,25 @@ class _HomeScreenState extends State<HomeScreen> {
     // Tick timer is set up in _subscribeMedicines (60s interval)
   }
 
+  static const _affirmations = [
+    '🌟 Amazing job!', '💪 You're crushing it!', '❤️ Nailing parenthood!',
+    '🏆 Super parent!', '✨ You're doing great!', '🌈 Keep it up!',
+    '👏 Brilliant!', '🥇 Parent of the day!', '💛 You've got this!',
+    '🌸 Wonderful!', '🎉 Way to go!', '💫 Superstar!',
+  ];
+
+  void _showConfetti(BuildContext ctx) {
+    final overlay = Overlay.of(ctx);
+    final rand = DateTime.now().millisecondsSinceEpoch;
+    final msg = _affirmations[rand % _affirmations.length];
+    late OverlayEntry entry;
+    entry = OverlayEntry(builder: (_) => _ConfettiOverlay(
+      message: msg,
+      onDone: () => entry.remove(),
+    ));
+    overlay.insert(entry);
+  }
+
   Future<void> _loadDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
@@ -204,6 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (result != null) {
       HapticFeedback.lightImpact();
+      _showConfetti(context);
       if (!mounted) return;
       String msg;
       if (result is BabyEvent) {
@@ -363,53 +383,61 @@ class _HomeScreenState extends State<HomeScreen> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     color: bgCol,
-                    border: Border.all(color: borderCol, width: 2),
+                    border: Border.all(color: borderCol.withOpacity(0.6), width: 1.5),
                   ),
-                  child: Row(children: [
-                    Text(isOverdue ? '⚠️' : '💊',
-                        style: const TextStyle(fontSize: 20)),
-                    const SizedBox(width: 10),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Give ' + med.displayName,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: borderCol)),
-                      Text(dayLabel,
-                          style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.8))),
-                    ])),
-                    const SizedBox(width: 4),
-                    // Dismiss (X) button — subtle
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        setState(() => _dismissedReminders.add(dismissKey));
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Icon(Icons.close, size: 16, color: borderCol.withOpacity(0.5)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      // Pill emoji — always, no warning icon
+                      Text('💊', style: const TextStyle(fontSize: 15)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(med.displayName,
+                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: borderCol)),
+                        Text(dayLabel + (isOverdue ? ' · overdue' : ''),
+                            style: TextStyle(fontSize: 11, color: borderCol.withOpacity(0.7))),
+                      ])),
+                      // Dismiss — far left, subtle
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          setState(() => _dismissedReminders.add(dismissKey));
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 4, 0, 4),
+                          child: Text('dismiss',
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600,
+                                  fontStyle: FontStyle.italic)),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    // Given button
-                    TextButton(
-                      onPressed: () async {
-                        HapticFeedback.lightImpact();
-                        await widget.medicineService!.markGiven(
-                            medicine: med, scheduledTime: slot,
-                            givenAt: slotDate);
-                        final reminders = await widget.medicineService!
-                            .getPendingReminders(_medicines);
-                        if (mounted) setState(() => _pendingReminders = reminders);
-                      },
-                      style: TextButton.styleFrom(
-                        backgroundColor: borderCol.withOpacity(0.15),
-                        foregroundColor: borderCol,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ]),
+                    const SizedBox(height: 8),
+                    // Given button — full width, clearly separated from dismiss
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          _showConfetti(context);
+                          await widget.medicineService!.markGiven(
+                              medicine: med, scheduledTime: slot,
+                              givenAt: slotDate);
+                          final reminders = await widget.medicineService!
+                              .getPendingReminders(_medicines);
+                          if (mounted) setState(() => _pendingReminders = reminders);
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor: borderCol.withOpacity(0.15),
+                          foregroundColor: borderCol,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: Text('✓ Given — ' + med.displayName,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                       ),
-                      child: const Text('✓ Given', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ]),
                 ),
@@ -417,6 +445,16 @@ class _HomeScreenState extends State<HomeScreen> {
             }).toList()),
           );
         }),
+
+        // ── 4. Ongoing action banner ─────────────────────────────
+        if (ongoing != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: _OngoingBannerCompact(
+              event: ongoing!,
+              onTap: () => _openLog(ongoing!.type),
+            ),
+          ),
 
         // Log buttons 2x2 grid
         Padding(
@@ -468,16 +506,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ])),
-
-        // ── Ongoing action banner (top of page, compact but prominent) ──
-        if (ongoing != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: _OngoingBannerCompact(
-              event: ongoing!,
-              onTap: () => _openLog(ongoing!.type),
-            ),
-          ),
 
         SafeArea(
             child: Container(
@@ -883,7 +911,7 @@ class _OngoingBannerCompact extends StatelessWidget {
     final label = event.type == EventType.sleep ? 'Sleeping' : 'Feeding' + sideText;
 
     return GestureDetector(
-      onTap: () { HapticFeedback.mediumImpact(); onTap(); },
+      onTap: () { HapticFeedback.mediumImpact(); onTap(); }, // confetti fired in _openLog result
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
@@ -997,4 +1025,106 @@ class _LogBtn extends StatelessWidget {
           ]),
         ));
   }
+}
+
+// ── Confetti + affirmation overlay ────────────────────────────────────
+class _ConfettiOverlay extends StatefulWidget {
+  final String message;
+  final VoidCallback onDone;
+  const _ConfettiOverlay({required this.message, required this.onDone});
+  @override
+  State<_ConfettiOverlay> createState() => _ConfettiOverlayState();
+}
+
+class _ConfettiOverlayState extends State<_ConfettiOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _fade;
+  late Animation<double> _slide;
+  final List<_Particle> _particles = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // Generate particles
+    final rng = DateTime.now().millisecondsSinceEpoch;
+    for (int i = 0; i < 28; i++) {
+      _particles.add(_Particle(
+        x: ((rng * (i + 7) * 31337) % 100) / 100.0,
+        color: _confettiColors[(rng + i * 13) % _confettiColors.length],
+        size: 5 + ((rng + i * 7) % 6).toDouble(),
+        speed: 0.4 + ((rng + i * 3) % 6) / 10.0,
+        angle: ((rng + i * 17) % 60) - 30.0,
+      ));
+    }
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
+    _fade = CurvedAnimation(parent: _ctrl, curve: const Interval(0.65, 1.0));
+    _slide = CurvedAnimation(parent: _ctrl, curve: const Interval(0.0, 0.3, curve: Curves.easeOut));
+    _ctrl.forward().then((_) => widget.onDone());
+  }
+
+  static const _confettiColors = [
+    Color(0xFFf97316), Color(0xFF22c55e), Color(0xFF6366f1),
+    Color(0xFFec4899), Color(0xFFf59e0b), Color(0xFF2dd4bf),
+  ];
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        final progress = _ctrl.value;
+        return FadeTransition(
+          opacity: Tween<double>(begin: 1, end: 0).animate(_fade),
+          child: Stack(children: [
+            // Affirmation message — slides up from center
+            Positioned(
+              bottom: 120 + _slide.value * 30,
+              left: 0, right: 0,
+              child: Center(child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.75),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Text(widget.message,
+                    style: const TextStyle(color: Colors.white,
+                        fontSize: 15, fontWeight: FontWeight.w600)),
+              )),
+            ),
+            // Confetti particles
+            ..._particles.map((p) {
+              final y = progress * p.speed * MediaQuery.of(context).size.height * 0.6;
+              final x = p.x * MediaQuery.of(context).size.width +
+                  (progress * p.angle * 2);
+              return Positioned(
+                left: x,
+                top: 100 + y,
+                child: Transform.rotate(
+                  angle: progress * p.angle * 0.1,
+                  child: Container(
+                    width: p.size, height: p.size * 0.6,
+                    decoration: BoxDecoration(
+                      color: p.color,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _Particle {
+  final double x, speed, angle, size;
+  final Color color;
+  const _Particle({required this.x, required this.speed, required this.angle,
+      required this.size, required this.color});
 }

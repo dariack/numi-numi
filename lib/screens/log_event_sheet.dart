@@ -65,11 +65,12 @@ class _LogEventSheetState extends State<LogEventSheet> {
     });
     if (widget.ongoing != null) {
       _when = widget.ongoing!.startTime;
+      // Pre-fill duration from elapsed time
+      _durationMin = DateTime.now().difference(widget.ongoing!.startTime).inMinutes.clamp(1, 999);
       if (_isFeed && widget.ongoing!.side == null) {
-        // Ending sideless feed — just show side picker
         _step = 3;
       } else {
-        _step = 1; // duration step for ending ongoing
+        _step = 1;
       }
     }
     if (_isFeed && widget.ongoing == null) {
@@ -606,7 +607,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
     ]);
   }
 
-  String _fmtTime(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  String _fmtTime(DateTime d) => '${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
   String _fmtDateTime(DateTime d) => '${d.day}/${d.month} ${_fmtTime(d)}';
 }
 
