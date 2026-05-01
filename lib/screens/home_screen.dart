@@ -59,10 +59,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   static const _affirmations = [
-    '🌟 Amazing job!', '💪 You're crushing it!', '❤️ Nailing parenthood!',
-    '🏆 Super parent!', '✨ You're doing great!', '🌈 Keep it up!',
-    '👏 Brilliant!', '🥇 Parent of the day!', '💛 You've got this!',
-    '🌸 Wonderful!', '🎉 Way to go!', '💫 Superstar!',
+    "🌟 Amazing job!", "💪 You're crushing it!", "❤️ Nailing parenthood!",
+    "🏆 Super parent!", "✨ You're doing great!", "🌈 Keep it up!",
+    "👏 Brilliant!", "🥇 Parent of the day!", "💛 You've got this!",
+    "🌸 Wonderful!", "🎉 Way to go!", "💫 Superstar!",
   ];
 
   void _showConfetti(BuildContext ctx) {
