@@ -7,12 +7,10 @@ import '../models/event.dart';
 import '../services/firestore_service.dart';
 import '../services/medicine_service.dart';
 import '../services/reminder_service.dart';
-import '../services/settings_service.dart';
 import '../models/medicine.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import 'log_event_sheet.dart';
-import 'history_screen.dart';
 
 const kSleepColor = Color(0xFFa78bfa);
 const kFeedColor = Colors.orange;
@@ -24,9 +22,8 @@ class HomeScreen extends StatefulWidget {
   final TrackerSettings settings;
   final MedicineService? medicineService;
   final ReminderService? reminderService;
-  final SettingsService? settingsService;
   final void Function(String)? onTabChange;
-  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.settingsService, this.onTabChange});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -87,15 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
       id = 'device_' + DateTime.now().millisecondsSinceEpoch.toString();
       await prefs.setString('device_id', id);
     }
-    // Recover caregiver name from Firestore if not in prefs (e.g. after reinstall)
-    String name = prefs.getString('caregiver_name') ?? '';
-    if (name.isEmpty) {
-      final cloudName = await widget.settingsService?.loadCaregiverName(id!);
-      if (cloudName != null && cloudName.isNotEmpty) {
-        name = cloudName;
-        await prefs.setString('caregiver_name', name);
-      }
-    }
+    final name = prefs.getString('caregiver_name') ?? '';
     if (name.isNotEmpty) widget.service.updateDeviceName(id!, name);
     final names = await widget.service.getDeviceNames();
     if (mounted) setState(() { _myDeviceId = id; _deviceNames.addAll(names); });
@@ -931,38 +920,6 @@ class _PumpStockCard extends StatelessWidget {
               ])),
         ]),
       ),
-
-        // ── View History button ─────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => HistoryScreen(
-                  service: widget.service,
-                  medicineService: widget.medicineService,
-                ),
-              ));
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade800),
-                color: Colors.transparent,
-              ),
-              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.history, size: 16, color: Colors.grey.shade500),
-                const SizedBox(width: 8),
-                Text('View History',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500)),
-              ]),
-            ),
-          ),
-        ),
     );
   }
 }
