@@ -245,27 +245,14 @@ function computeHomeStats(){
 function renderHomeStats(){
   var el=document.getElementById('home-stats');
   if(!el){render();return;}  // fallback: full render if structure not ready
-  el.innerHTML=buildHomeStatsHtml();}
+  el.innerHTML=buildHomeStatsHtml();
+  // Also refresh medicine banners (they're outside #home-stats)
+  var mb=document.getElementById('medicine-banners');
+  if(mb)mb.innerHTML=buildMedicineBannersHtml();
+}
 
 function buildHomeStatsHtml(){
   var s=computeHomeStats(),now=new Date(),h='',ong=s.ong;
-  // Medicine reminders
-  getPendingReminders().forEach(function(r){
-    var med=r.medicine,slot=r.scheduledTime;
-    var dismissKey=med.id+'_'+slot+'_'+(r.slotDate?r.slotDate.getDate()+'_'+r.slotDate.getMonth():'');
-    if(dismissedReminders[dismissKey])return;
-    var dayLabel=r.dayLabel||('Today at '+slot);var isOverdue=r.isOverdue||false;
-     var col=isOverdue?'#f97316':'#a855f7';
-     h+='<div style="background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.08);border:1.5px solid '+col+'99;border-radius:10px;padding:10px 12px;margin-bottom:6px">';
-     h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-     h+='<span style="font-size:0.9rem">💊</span>';
-     h+='<div style="flex:1"><div style="font-weight:600;font-size:0.85rem;color:'+col+'">'+med.displayName+'</div>';
-     h+='<div style="font-size:0.72rem;color:var(--muted)">'+dayLabel+(isOverdue?' · overdue':'')+'</div></div>';
-     h+='<span onclick="dismissReminder(\''+dismissKey+'\')" style="font-size:0.72rem;color:var(--muted);cursor:pointer;font-style:italic">dismiss</span>';
-     h+='</div>';
-     h+='<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="width:100%;padding:7px;background:'+col+'22;color:'+col+';border:1px solid '+col+'44;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.82rem">✓ Given — '+med.displayName+'</button>';
-     h+='</div>';
-  });
   if(ong){var dur=fmt(now-ong.startTime);var oc=ong.type==='sleep'?'#a855f7':'#f97316';var st=ong.side?' · '+ong.side:'';
     h+='<div onclick="openEnd(\''+ong.id+'\',\''+ong.type+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:'+oc+'1a;border:1.5px solid '+oc+';border-radius:10px;cursor:pointer;margin-bottom:6px">';
     h+='<span style="font-size:1rem">'+(ong.type==='sleep'?'😴':'🍼')+'</span>';
@@ -315,9 +302,35 @@ function buildHomeStatsHtml(){
     h+='</div></div>';}
   return h;}
 
+function buildMedicineBannersHtml(){
+  var h='';
+  getPendingReminders().forEach(function(r){
+    var med=r.medicine,slot=r.scheduledTime;
+    var dismissKey=med.id+'_'+slot+'_'+(r.slotDate?r.slotDate.getDate()+'_'+r.slotDate.getMonth():'');
+    if(dismissedReminders[dismissKey])return;
+    var medName=med.displayName||med.name||'Medicine';
+    var dayLabel=r.dayLabel||('Today at '+slot);
+    var isOverdue=r.isOverdue||false;
+    var col=isOverdue?'#f97316':'#a855f7';
+    // Lean design: single row with icon + name + time + small given btn + X
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.07);border:1px solid '+col+'66;border-radius:10px;margin-bottom:6px">';
+    h+='<span style="font-size:0.85rem">💊</span>';
+    h+='<span style="font-size:0.83rem;font-weight:600;color:'+col+'">'+medName+'</span>';
+    h+='<span style="font-size:0.75rem;color:var(--muted)">'+dayLabel+(isOverdue?' · overdue':'')+'</span>';
+    h+='<button onclick="markMedicineGiven(\''+med.id+'\',\''+slot+'\')" style="margin-left:auto;padding:3px 10px;background:'+col+'22;color:'+col+';border:1px solid '+col+'55;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600">✓ Given</button>';
+    h+='<span onclick="dismissReminder(\''+dismissKey+'\')" style="cursor:pointer;color:var(--muted);font-size:0.85rem;padding:2px 4px;opacity:0.6" title="Dismiss">✕</span>';
+    h+='</div>';
+  });
+  return h;
+}
+
 function renderHome(){
   var now=new Date(),h='',s=computeHomeStats(),ong=s.ong;
   h+='<div class="page-title">Dashboard</div>';
+  // ── Medicine banners (above everything)
+  h+='<div id="medicine-banners">';
+  h+=buildMedicineBannersHtml();
+  h+='</div>';
   // ── Partner activity strip
   var myDevId=getWebDeviceId();
   var recentPartner=allEv.filter(function(e){return e.createdBy&&e.createdBy!==myDevId&&(now-e.startTime)/60000<10;});
@@ -596,16 +609,24 @@ function fmtSlotLabel(slotDate,slot,dayOffset){
 }
 function getStockByStorage(){
   var now=new Date();
+  // Build usedMl keyed by BOTH doc id and pumpId to handle both ref styles
   var usedMl={};
-  allEv.filter(function(e){return e.type==='feed'&&e.linkedPumps;}).forEach(function(e){
-    try{JSON.parse(e.linkedPumps).forEach(function(l){usedMl[l.pumpId]=(usedMl[l.pumpId]||0)+l.ml;});}catch(x){}
+  allEv.filter(function(e){return e.type==='feed';}).forEach(function(f){
+    if(f.linkedPumps){try{JSON.parse(f.linkedPumps).forEach(function(l){
+      if(l.id)usedMl[l.id]=(usedMl[l.id]||0)+l.ml;
+      if(l.pumpId)usedMl[l.pumpId]=(usedMl[l.pumpId]||0)+l.ml;
+    });}catch(x){}}
+    else if(f.linkedPumpId){usedMl[f.linkedPumpId]=(usedMl[f.linkedPumpId]||0)+(f.mlFed||0);}
   });
   var stock={room:[],fridge:[],freezer:[]};
   allEv.forEach(function(e){
     if(e.type!=='pump'||e.spoiled||!e.ml)return;
-    var rem=e.ml-(usedMl[e.id]||0);
-    if(rem<=0)return;
-    if(e.expiresAt&&e.expiresAt<now)return;
+    // Check remaining using both id and pumpId
+    var used=(usedMl[e.id]||0);
+    if(e.pumpId)used=Math.max(used,usedMl[e.pumpId]||0);
+    var rem=e.ml-used;
+    if(rem<=0)return;  // fully used — skip
+    if(e.expiresAt&&e.expiresAt<now)return;  // expired — skip
     var st=e.storage||'room';
     if(stock[st])stock[st].push({id:e.id,pumpId:e.pumpId,ml:rem,storage:st,expires:e.expiresAt,startTime:e.startTime});
   });
