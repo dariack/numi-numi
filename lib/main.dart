@@ -13,6 +13,7 @@ import 'screens/insights_accordion_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/medicine_screen.dart';
 import 'screens/sleep_analysis_screen.dart';
+import 'screens/pump_screen.dart';
 import 'services/firestore_service.dart';
 import 'services/medicine_service.dart';
 import 'services/notification_service.dart';
@@ -246,9 +247,9 @@ class _MainAppState extends State<MainApp> {
         ),
       ),
       _NavTab(
-        id: 'history', icon: Icons.history_outlined, selectedIcon: Icons.history,
-        label: 'History',
-        builder: () => HistoryScreen(service: _service, medicineService: _medicineService),
+        id: 'pump', icon: Icons.water_drop_outlined, selectedIcon: Icons.water_drop,
+        label: 'Pump',
+        builder: () => PumpScreen(service: _service),
       ),
       _NavTab(
         id: 'insights', icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,

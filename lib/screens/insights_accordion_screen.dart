@@ -32,7 +32,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen> {
     final results = await Future.wait([
       widget.service.getFeedInsights(),
       _loadDiaperData(),
-      widget.service.getPumpStats(),
+      Future.value(<String, dynamic>{}), // pump moved to PumpScreen
     ]);
     if (!mounted) return;
     setState(() {
@@ -85,8 +85,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen> {
             _feedData  == null ? null : _FeedPanel(data: _feedData!,   isDark: isDark)),
         _section('diaper','🧷', 'Diaper',      kDiaperColor2, _diaperSummary(), isDark, divColor,
             _diaperData == null ? null : _DiaperPanel(data: _diaperData!, isDark: isDark)),
-        _section('pump',  '🥛', 'Pump & Stock', kPumpColor2, _pumpSummary(),  isDark, divColor,
-            _pumpData  == null ? null : _PumpPanel(data: _pumpData!, service: widget.service, isDark: isDark)),
+
       ]),
     );
   }
@@ -143,7 +142,8 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen> {
     return 'Last 24h: ' + c.toString() + '  ·  5d avg: ' + avg.toStringAsFixed(1) + (b.isNotEmpty ? '  ' + b : '');
   }
 
-  String _pumpSummary() {
+  // _pumpSummary removed — pump moved to PumpScreen
+  String _pumpSummaryRemoved() {
     if (_pumpData == null) return 'Loading...';
     final p = (_pumpData!['avgPumpedPerDay'] as double).round();
     final u = (_pumpData!['avgUsedPerDay'] as double).round();

@@ -60,8 +60,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final canPop = Navigator.of(context).canPop();
+    // When pushed as a full page (from Home button), wrap in Scaffold with AppBar
+    if (canPop) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('History'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: _buildBody(context, theme),
+      );
+    }
+    return _buildBody(context, theme);
+  }
+
+  Widget _buildBody(BuildContext context, ThemeData theme) {
     return Column(
         children: [
+          if (!Navigator.of(context).canPop())
           SafeArea(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Column(

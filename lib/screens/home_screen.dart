@@ -12,6 +12,7 @@ import '../models/medicine.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import 'log_event_sheet.dart';
+import 'history_screen.dart';
 
 const kSleepColor = Color(0xFFa78bfa);
 const kFeedColor = Colors.orange;
@@ -899,6 +900,38 @@ class _PumpStockCard extends StatelessWidget {
               ])),
         ]),
       ),
+
+        // ── View History button ─────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => HistoryScreen(
+                  service: widget.service,
+                  medicineService: widget.medicineService,
+                ),
+              ));
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade800),
+                color: Colors.transparent,
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.history, size: 16, color: Colors.grey.shade500),
+                const SizedBox(width: 8),
+                Text('View History',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500)),
+              ]),
+            ),
+          ),
+        ),
     );
   }
 }
