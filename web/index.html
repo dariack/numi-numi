@@ -176,6 +176,8 @@ function listenConfig(){
   if(cfgUnsub)cfgUnsub();
   cfgUnsub=db.collection('families').doc(fid).collection('settings').doc('config').onSnapshot(function(doc){
     if(doc.exists){var d=doc.data();cfg={trackSleep:d.trackSleep!==false,trackFeed:d.trackFeed!==false,trackDiaper:d.trackDiaper!==false,trackPump:d.trackPump===true,birthDate:d.birthDate||null}}
+    // Recover caregiver name from Firestore if missing from localStorage
+    if(!localStorage.getItem('caregiver_name')){loadCaregiverNameFromCloud(function(){});}
     updateNav();render();
   });
 }
@@ -608,13 +610,31 @@ function getPendingReminders(){
   return pending;
 }
 
+function getWebDeviceId(){
+  var id=localStorage.getItem('web_device_id');
+  if(!id){id='web_'+Date.now();localStorage.setItem('web_device_id',id);}
+  return id;
+}
+
 function saveCaregiverName(name){
   localStorage.setItem('caregiver_name',name.trim());
-  // Sync to Firestore devices collection
   if(db&&fid&&name.trim()){
-    db.collection('families').doc(fid).collection('devices').doc('web_user')
-      .set({name:name.trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+    db.collection('families').doc(fid).collection('devices').doc(getWebDeviceId())
+      .set({name:name.trim(),platform:'web',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
   }
+}
+
+function loadCaregiverNameFromCloud(callback){
+  var deviceId=getWebDeviceId();
+  if(!db||!fid){callback('');return;}
+  db.collection('families').doc(fid).collection('devices').doc(deviceId).get()
+    .then(function(doc){
+      if(doc.exists&&doc.data().name){
+        var name=doc.data().name;
+        localStorage.setItem('caregiver_name',name);
+        callback(name);
+      } else {callback(localStorage.getItem('caregiver_name')||'');}
+    }).catch(function(){callback(localStorage.getItem('caregiver_name')||'');});
 }
 
 function toggleReminderCfg(key){

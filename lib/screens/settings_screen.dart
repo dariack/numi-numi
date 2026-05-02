@@ -434,12 +434,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onSubmitted: (v) async {
+                    final name = v.trim();
                     final p = await SharedPreferences.getInstance();
-                    await p.setString('caregiver_name', v.trim());
+                    await p.setString('caregiver_name', name);
+                    // Also persist to Firestore so it survives reinstall
+                    final deviceId = p.getString('device_id') ?? '';
+                    if (deviceId.isNotEmpty && name.isNotEmpty) {
+                      await widget.settingsService.saveCaregiverName(deviceId, name);
+                    }
                   },
                   onEditingComplete: () async {
+                    final name = _nameCtrl.text.trim();
                     final p = await SharedPreferences.getInstance();
-                    await p.setString('caregiver_name', _nameCtrl.text.trim());
+                    await p.setString('caregiver_name', name);
+                    final deviceId = p.getString('device_id') ?? '';
+                    if (deviceId.isNotEmpty && name.isNotEmpty) {
+                      await widget.settingsService.saveCaregiverName(deviceId, name);
+                    }
                   },
                 ),
                 const SizedBox(height: 12),

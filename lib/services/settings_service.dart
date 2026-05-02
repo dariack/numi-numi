@@ -81,7 +81,24 @@ class SettingsService {
   }
 
   Future<void> saveBirthDate(DateTime date) async {
-    final val = '${date.year}-${date.month.toString().padLeft(2,'0')}-${date.day.toString().padLeft(2,'0')}';
+    final val = '${date.year}-${date.month.toString().padLeft(2, "0")}-${date.day.toString().padLeft(2, "0")}';
     await _ref.set({'birthDate': val}, SetOptions(merge: true));
+  }
+
+  Future<void> saveCaregiverName(String deviceId, String name) async {
+    try {
+      await _db.collection('families').doc(familyId)
+          .collection('devices').doc(deviceId)
+          .set({'name': name, 'updatedAt': FieldValue.serverTimestamp()},
+              SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  Future<String?> loadCaregiverName(String deviceId) async {
+    try {
+      final doc = await _db.collection('families').doc(familyId)
+          .collection('devices').doc(deviceId).get();
+      return doc.data()?['name'] as String?;
+    } catch (_) { return null; }
   }
 }

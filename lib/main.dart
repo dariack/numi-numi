@@ -236,6 +236,7 @@ class _MainAppState extends State<MainApp> {
           settings: _settings,
           medicineService: _medicineService,
           reminderService: _reminderService,
+          settingsService: _settingsService,
           onTabChange: (tabId) {
             final tabs = _buildTabs();
             final idx = tabs.indexWhere((t) => t.id == tabId);

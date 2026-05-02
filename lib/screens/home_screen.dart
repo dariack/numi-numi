@@ -7,6 +7,7 @@ import '../models/event.dart';
 import '../services/firestore_service.dart';
 import '../services/medicine_service.dart';
 import '../services/reminder_service.dart';
+import '../services/settings_service.dart';
 import '../models/medicine.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
@@ -22,8 +23,9 @@ class HomeScreen extends StatefulWidget {
   final TrackerSettings settings;
   final MedicineService? medicineService;
   final ReminderService? reminderService;
+  final SettingsService? settingsService;
   final void Function(String)? onTabChange;
-  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.settingsService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -84,7 +86,15 @@ class _HomeScreenState extends State<HomeScreen> {
       id = 'device_' + DateTime.now().millisecondsSinceEpoch.toString();
       await prefs.setString('device_id', id);
     }
-    final name = prefs.getString('caregiver_name') ?? '';
+    // Recover caregiver name from Firestore if not in prefs (e.g. after reinstall)
+    String name = prefs.getString('caregiver_name') ?? '';
+    if (name.isEmpty) {
+      final cloudName = await widget.settingsService.loadCaregiverName(id!);
+      if (cloudName != null && cloudName.isNotEmpty) {
+        name = cloudName;
+        await prefs.setString('caregiver_name', name);
+      }
+    }
     if (name.isNotEmpty) widget.service.updateDeviceName(id!, name);
     final names = await widget.service.getDeviceNames();
     if (mounted) setState(() { _myDeviceId = id; _deviceNames.addAll(names); });
