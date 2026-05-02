@@ -80,7 +80,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildBody(BuildContext context, ThemeData theme) {
     return Column(
         children: [
-          if (!Navigator.of(context).canPop())
           SafeArea(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Column(

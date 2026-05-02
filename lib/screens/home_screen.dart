@@ -898,10 +898,8 @@ class _PumpStockCard extends StatelessWidget {
                   );
                 }),
               ])),
-        ]),
-      ),
 
-        // ── View History button ─────────────────────────────────
+        // ── View History button — last item in ListView ─────────
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           child: GestureDetector(
@@ -932,7 +930,8 @@ class _PumpStockCard extends StatelessWidget {
             ),
           ),
         ),
-    );
+      ]),
+    ));
   }
 }
 
