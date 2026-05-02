@@ -68,7 +68,7 @@ class SettingsService {
   }
 
   Future<void> save(TrackerSettings settings) async {
-    await _ref.set(settings.toMap());
+    await _ref.set(settings.toMap(), SetOptions(merge: true));
   }
 
   Future<DateTime?> getBirthDate() async {
