@@ -89,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Recover caregiver name from Firestore if not in prefs (e.g. after reinstall)
     String name = prefs.getString('caregiver_name') ?? '';
     if (name.isEmpty) {
-      final cloudName = await widget.settingsService.loadCaregiverName(id!);
+      final cloudName = await widget.settingsService?.loadCaregiverName(id!);
       if (cloudName != null && cloudName.isNotEmpty) {
         name = cloudName;
         await prefs.setString('caregiver_name', name);
