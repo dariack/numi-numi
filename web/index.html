@@ -124,13 +124,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="logo">👶 <span>Yuli</span></div>
       <div class="nav-item active" data-tab="home" onclick="setTab('home')"><span class="icon">🏠</span> Home</div>
       <div class="nav-item" data-tab="history" onclick="setTab('history')"><span class="icon">📋</span> History</div>
-      <div class="nav-item" data-tab="feed" onclick="setTab('feed')" style="display:none"><span class="icon">🍼</span> Feed</div>
-      <div class="nav-item" data-tab="sleep" onclick="setTab('sleep')" style="display:none"><span class="icon">😴</span> Sleep</div>
-      <div class="nav-item" data-tab="diaper" onclick="setTab('diaper')" style="display:none"><span class="icon">🧷</span> Diaper</div>
-      <div class="nav-item" data-tab="pump" onclick="setTab('pump')" style="display:none"><span class="icon">🧴</span> Pump</div>
+      <div class="nav-item" data-tab="insights" onclick="setTab('insights')"><span class="icon">📊</span> Insights</div>
       <div class="nav-item" data-tab="sleep_analysis" onclick="setTab('sleep_analysis')"><span class="icon">🌙</span> Sleep</div>
-      <div class="nav-item" data-tab="medicine" onclick="setTab('medicine')"><span class="icon">💊</span> Medicine</div>
-      <div class="nav-item" data-tab="settings" onclick="setTab(&apos;settings&apos;)"><span class="icon">⚙️</span> Settings</div>
+      <div class="nav-item" data-tab="settings" onclick="setTab('settings')"><span class="icon">⚙️</span> Settings</div>
       <div class="bottom">
         <div class="fam-name" id="fam-display"></div>
         <div class="fam-code">Family code</div>
@@ -184,11 +180,6 @@ function listenConfig(){
 function saveCfg(){db.collection('families').doc(fid).collection('settings').doc('config').set(cfg,{merge:true})}
 function updateNav(){
   var sb=document.getElementById('sidebar-nav');
-  var show={feed:cfg.trackFeed,sleep:cfg.trackSleep,diaper:cfg.trackDiaper,pump:cfg.trackPump};
-  ['feed','sleep','diaper','pump'].forEach(function(t){
-    var el=sb.querySelector('.nav-item[data-tab='+t+']');
-    if(el)el.style.display=show[t]?'':'none';
-  });
   sb.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===tab)});
 }
 function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<div class="loading"><div class="sp"></div>Loading...</div>';
@@ -202,7 +193,7 @@ function listen(){if(unsub)unsub();document.getElementById('main').innerHTML='<d
 
 function setTab(t){tab=t;document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.getAttribute('data-tab')===t)});render()}
 function render(){Object.keys(charts).forEach(function(k){charts[k].destroy();delete charts[k]});
-  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='feed')renderFeedTab();else if(tab==='sleep')renderSleepTab();else if(tab==='diaper')renderDiaperTab();else if(tab==='pump')renderPump();else if(tab==='sleep_analysis')renderSleepAnalysis();else if(tab==='medicine')renderMedicine();else if(tab==='settings')renderSettings()}
+  if(tab==='home')renderHome();else if(tab==='history')renderHistory();else if(tab==='insights')renderInsights();else if(tab==='sleep_analysis')renderSleepAnalysis();else if(tab==='medicine')renderMedicine();else if(tab==='settings')renderSettings();}
 
 // ==================== HOME ====================
 // Compute stats from allEv — pure JS, no network calls
@@ -568,6 +559,40 @@ function fmtSlotLabel(slotDate,slot,dayOffset){
   if(dayOffset===1)return 'Yesterday ('+dayName+' '+d+'/'+m+') at '+slot;
   return dayName+' '+d+'/'+m+' at '+slot;
 }
+function getStockByStorage(){
+  var now=new Date();
+  var usedMl={};
+  allEv.filter(function(e){return e.type==='feed'&&e.linkedPumps;}).forEach(function(e){
+    try{JSON.parse(e.linkedPumps).forEach(function(l){usedMl[l.pumpId]=(usedMl[l.pumpId]||0)+l.ml;});}catch(x){}
+  });
+  var stock={room:[],fridge:[],freezer:[]};
+  allEv.forEach(function(e){
+    if(e.type!=='pump'||e.spoiled||!e.ml)return;
+    var rem=e.ml-(usedMl[e.id]||0);
+    if(rem<=0)return;
+    if(e.expiresAt&&e.expiresAt<now)return;
+    var st=e.storage||'room';
+    if(stock[st])stock[st].push({id:e.id,pumpId:e.pumpId,ml:rem,storage:st,expires:e.expiresAt,startTime:e.startTime});
+  });
+  return stock;
+}
+
+function markGiven(medId,slot){
+  var med=allMedicines.find(function(m){return m.id===medId;});
+  if(!med)return;
+  var now=new Date();
+  db.collection('families').doc(fid).collection('medicineGiven').add({
+    medicineId:medId,scheduledTime:slot,
+    givenAt:firebase.firestore.Timestamp.fromDate(now),
+    displayName:med.displayName
+  }).then(function(){
+    showCelebration();
+    loadMedicines();
+    if(tab==='home')renderHomeStats();
+    if(tab==='insights')renderInsights();
+  });
+}
+
 function getPendingReminders(){
   var now=new Date(),pending=[];
   var lookback=new Date(now.getTime()-48*3600000);
@@ -1553,6 +1578,255 @@ function renderSettings(){
   h+='</div>';
   document.getElementById('main').innerHTML=h;
 }
+
+// ==================== INSIGHTS ACCORDION ====================
+var insightsOpen = 'feed'; // which section is open
+
+function setInsightsSection(section) {
+  insightsOpen = section;
+  renderInsights();
+}
+
+function renderInsights() {
+  var h = '<div class="page-title">📊 Insights</div>';
+  var sections = [
+    {id:'feed', emoji:'🍼', label:'Feeding', fn:renderFeedInsight},
+    {id:'diaper', emoji:'🧷', label:'Diaper', fn:renderDiaperInsight},
+    {id:'pump', emoji:'🥛', label:'Pump', fn:renderPumpInsight},
+    {id:'medicine', emoji:'💊', label:'Medicine', fn:renderMedicineInsight},
+  ];
+  sections.forEach(function(s) {
+    if(!cfg['track'+s.id.charAt(0).toUpperCase()+s.id.slice(1)] && s.id!=='medicine') return;
+    var isOpen = insightsOpen === s.id;
+    var summary = getSectionSummary(s.id);
+    h += '<div style="margin-bottom:8px;border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+    h += '<div onclick="setInsightsSection(\''+(isOpen?'_none':s.id)+'\')" style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;background:var(--card);user-select:none">';
+    h += '<span style="font-size:1.2rem">'+s.emoji+'</span>';
+    h += '<span style="font-weight:600;font-size:0.95rem">'+s.label+'</span>';
+    h += '<span style="margin-left:8px;font-size:0.82rem;color:var(--muted)">'+summary+'</span>';
+    h += '<span style="margin-left:auto;color:var(--muted);transition:transform 0.2s;transform:'+(isOpen?'rotate(90deg)':'rotate(0deg)')+'">▶</span>';
+    h += '</div>';
+    if(isOpen) {
+      h += '<div style="padding:16px;background:var(--card2);border-top:1px solid var(--border)">';
+      h += s.fn();
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  document.getElementById('main').innerHTML = h;
+  // Init charts after render
+  setTimeout(function() {
+    if(insightsOpen === 'feed') initFeedCharts();
+    else if(insightsOpen === 'diaper') initDiaperCharts();
+    else if(insightsOpen === 'pump') initPumpCharts();
+  }, 50);
+}
+
+function getSectionSummary(id) {
+  var now = new Date();
+  var d24 = new Date(now - 864e5);
+  if(id === 'feed') {
+    var feeds = allEv.filter(function(e){return e.type==='feed';});
+    var cnt = feeds.filter(function(e){return e.startTime>=d24;}).length;
+    var last = feeds[0];
+    var lastStr = last ? fmt(now-(last.endTime||last.startTime))+' ago' : '--';
+    var avg = getAvg('feed', 7);
+    var badge = avg>0 ? compBadge(cnt, avg) : '';
+    return cnt+' feeds today · last '+lastStr+' '+badge;
+  }
+  if(id === 'diaper') {
+    var diapers = allEv.filter(function(e){return e.type==='diaper';});
+    var cnt2 = diapers.filter(function(e){return e.startTime>=d24;}).length;
+    var last2 = diapers[0];
+    var lastStr2 = last2 ? fmt(now-last2.startTime)+' ago' : '--';
+    var avg2 = getAvg('diaper', 7);
+    var badge2 = avg2>0 ? compBadge(cnt2, avg2) : '';
+    return cnt2+' today · last '+lastStr2+' '+badge2;
+  }
+  if(id === 'pump') {
+    var pumps = allEv.filter(function(e){return e.type==='pump'&&e.ml;});
+    var ml24 = pumps.filter(function(e){return e.startTime>=d24;}).reduce(function(s,e){return s+(e.ml||0);},0);
+    return ml24+'ml today';
+  }
+  if(id === 'medicine') {
+    var pend = getPendingReminders(allMedicines);
+    return pend.length ? pend.length+' pending' : 'all given ✓';
+  }
+  return '';
+}
+
+function compBadge(val, avg) {
+  if(avg <= 0) return '';
+  var diff = (val - avg) / avg;
+  if(diff > 0.15) return '<span style="font-size:0.7rem;background:rgba(34,197,94,0.15);color:#22c55e;padding:1px 6px;border-radius:10px">↑ above avg</span>';
+  if(diff < -0.15) return '<span style="font-size:0.7rem;background:rgba(239,68,68,0.1);color:#ef4444;padding:1px 6px;border-radius:10px">↓ below avg</span>';
+  return '<span style="font-size:0.7rem;background:rgba(113,113,122,0.15);color:var(--muted);padding:1px 6px;border-radius:10px">≈ avg</span>';
+}
+
+function getAvg(type, days) {
+  var cutoff = new Date(Date.now() - days*864e5);
+  var evs = allEv.filter(function(e){return e.type===type&&e.startTime>=cutoff;});
+  return evs.length / days;
+}
+
+// Feed insight content (extracted from renderFeedTab)
+function renderFeedInsight() {
+  var h = '';
+  var now = new Date();
+  var feeds = allEv.filter(function(e){return e.type==='feed';});
+  var lastFeed = feeds[0];
+  if(lastFeed){
+    var endT = lastFeed.endTime||lastFeed.startTime;
+    h += statRow('⏱','Time since last feed','<span style="color:var(--feed);font-weight:600">'+fmt(now-endT)+'</span>');
+  }
+  // Side recommendation
+  var recSide=null,recReason=null;
+  var breastFeeds=feeds.filter(function(f){return f.source!=='pump'&&f.side;});
+  var recentPumps=allEv.filter(function(e){return e.type==='pump'&&e.side&&e.side!=='both';}).slice(0,5);
+  var lastBF=breastFeeds[0];
+  if(lastBF){
+    var ls=lastBF.side;var os=ls==='left'?'right':'left';
+    var le=lastBF.endTime||lastBF.startTime;
+    var ms=Math.round((Date.now()-le.getTime())/60000);
+    var dur=lastBF.duration||null;
+    var ps=recentPumps.filter(function(p){return p.startTime>le&&p.side!=='both';});
+    if(ms>120){if(ps.length){var psd=ps[0].side;recSide=psd==='left'?'right':'left';recReason=psd+' pumped since last feed'}else{recSide=os;recReason=Math.floor(ms/60)+'h+ gap — alternate'}}
+    else if(dur!==null&&dur<5){recSide=ls;recReason='Short feed ('+dur+'m) — offer '+ls+' again'}
+    else if(dur!==null&&dur<10){recSide=ls;recReason='Last feed short — offer '+ls+' again'}
+    else if(ps.length){var psd2=ps[0].side;recSide=psd2==='left'?'right':'left';recReason=psd2+' pumped — other side fuller'}
+    else{recSide=os;recReason='Alternating — last was '+ls+(dur?' ('+dur+'m)':'');}
+  } else if(recentPumps.length){var psd3=recentPumps[0].side;recSide=psd3==='left'?'right':'left';recReason='Recently pumped '+psd3;}
+  if(recSide){h+='<div style="background:var(--feeddim);border:1.5px solid var(--feed);border-radius:10px;padding:14px;margin:10px 0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:1.2rem">🤱</span><span style="font-weight:700;color:var(--feed)">Next: '+recSide.toUpperCase()+'</span></div><div style="font-size:0.82rem;color:var(--muted)">'+recReason+'</div></div>';}
+  // 24h stats
+  var d24=new Date(now-864e5);
+  var f24=feeds.filter(function(e){return e.startTime>=d24;});
+  var totalMin=f24.reduce(function(s,f){return s+(f.duration||0);},0);
+  var avg7=getAvg('feed',7);
+  h+=statRow('📊','Today','<b>'+f24.length+'</b> feeds · '+fmtMin(totalMin)+' total '+compBadge(f24.length,avg7));
+  // Feed gap chart
+  h+='<div style="background:var(--card);border-radius:10px;padding:16px;margin:10px 0"><div class="section-label" style="margin-bottom:10px">FEED GAPS — LAST 24H</div><canvas id="fi-chart1" style="max-height:180px"></canvas></div>';
+  // Recent mini history
+  h+='<div class="section-label" style="margin:12px 0 6px">RECENT FEEDS</div>';
+  h+=renderMiniHistory(feeds.slice(0,10));
+  return h;
+}
+function initFeedCharts(){
+  var feeds=allEv.filter(function(e){return e.type==='feed'&&e.startTime>=new Date(Date.now()-864e5);});
+  if(!document.getElementById('fi-chart1'))return;
+  drawFeedGaps('fi-chart1',feeds);
+}
+
+function renderDiaperInsight() {
+  var h='';var now=new Date();
+  var diapers=allEv.filter(function(e){return e.type==='diaper';});
+  var lastD=diapers[0];
+  if(lastD){var w=lastD.pee&&lastD.poop?'pee+poop':lastD.poop?'poop':'pee';
+    h+=statRow('⏱','Since last diaper','<span style="color:var(--diaper);font-weight:600">'+fmt(now-lastD.startTime)+'</span> ('+w+')');}
+  var d24=new Date(now-864e5);var d5=new Date(now-864e5*5);
+  var cnt24=diapers.filter(function(e){return e.startTime>=d24;}).length;
+  var avg5=diapers.filter(function(e){return e.startTime>=d5;}).length/5;
+  h+=statRow('📊','Last 24h','<b>'+cnt24+'</b> diapers · 5-day avg: '+avg5.toFixed(1)+' '+compBadge(cnt24,avg5));
+  var periods=['Night','Morning','Afternoon','Evening'];
+  var pavg=periods.map(function(p){var c=diapers.filter(function(e){return e.startTime>=d5&&getPeriodName(e.startTime)===p;}).length;return {name:p,avg:(c/5).toFixed(1)};});
+  h+=statRow('🕐','5-Day avg by period',pavg.map(function(p){var em={Night:'🌙',Morning:'🌅',Afternoon:'☀️',Evening:'🌇'}[p.name];return em+' '+p.name+': '+p.avg;}).join(' · '));
+  h+='<div class="section-label" style="margin:12px 0 6px">RECENT</div>';
+  h+=renderMiniHistory(diapers.slice(0,10));
+  return h;
+}
+function initDiaperCharts(){}
+
+function renderPumpInsight() {
+  // Reuse existing renderPump logic inline
+  var h='';var now=new Date();
+  var pumps=allEv.filter(function(e){return e.type==='pump';});
+  var d5=new Date(now-864e5*5);
+  var p5=pumps.filter(function(e){return e.startTime>=d5&&e.ml;});
+  var avgPumped=p5.length?p5.reduce(function(s,e){return s+(e.ml||0);},0)/5:0;
+  var d24=new Date(now-864e5);
+  var ml24=pumps.filter(function(e){return e.startTime>=d24&&e.ml;}).reduce(function(s,e){return s+(e.ml||0);},0);
+  h+=statRow('🥛','Today pumped','<b>'+ml24+'ml</b>');
+  h+=statRow('📈','5-day avg','<b>'+Math.round(avgPumped)+'ml</b>/day');
+  // Stock
+  var stock=getStockByStorage();
+  ['room','fridge','freezer'].forEach(function(stor){
+    var items=stock[stor]||[];
+    if(!items.length)return;
+    var total=items.reduce(function(s,i){return s+(i.ml||0);},0);
+    var icons={'room':'🌡️','fridge':'❄️','freezer':'🧊'};
+    var labels={'room':'Room temp','fridge':'Fridge','freezer':'Freezer'};
+    h+=statRow(icons[stor],labels[stor],'<b>'+total+'ml</b> · '+items.length+' unit'+(items.length>1?'s':''));
+  });
+  h+='<div class="section-label" style="margin:12px 0 6px">RECENT PUMPS</div>';
+  h+=renderMiniHistory(pumps.slice(0,8));
+  return h;
+}
+function initPumpCharts(){}
+
+function renderMedicineInsight() {
+  // Inline medicine status — not full medicine management
+  var h='';
+  var pend=getPendingReminders(allMedicines);
+  if(pend.length){
+    h+='<div class="section-label" style="margin-bottom:8px">PENDING</div>';
+    pend.forEach(function(r){
+      var med=r.medicine,slot=r.scheduledTime,dayLabel=r.dayLabel||'Today at '+slot;
+      var isOverdue=r.isOverdue||false;
+      var col=isOverdue?'#f97316':'#a855f7';
+      h+='<div style="background:rgba('+(isOverdue?'249,115,22':'168,85,247')+',0.08);border:1.5px solid '+col+';border-radius:10px;padding:12px;margin-bottom:8px">';
+      h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      h+='<span>💊</span><div><div style="font-weight:600;font-size:0.9rem;color:'+col+'">'+med.displayName+'</div>';
+      h+='<div style="font-size:0.78rem;color:var(--muted)">'+dayLabel+(isOverdue?' · overdue':'')+'</div></div>';
+      var _dk=(med.id+'_'+slot+'_'+(r.slotDate?r.slotDate.getDate()+'_'+r.slotDate.getMonth():''));
+      h+='<span onclick="dismissReminder(\''+_dk+'\')" style="margin-left:auto;font-size:0.75rem;color:var(--muted);cursor:pointer;font-style:italic">dismiss</span>';
+      h+='</div>';
+      h+='<button onclick="markGiven(\''+med.id+'\',\''+slot+'\')" style="width:100%;padding:8px;background:'+col+'22;color:'+col+';border:1px solid '+col+'44;border-radius:8px;cursor:pointer;font-weight:600;font-size:0.88rem">✓ Given — '+med.displayName+'</button>';
+      h+='</div>';
+    });
+  } else {
+    h+='<div style="text-align:center;padding:20px;color:var(--muted)">✅ All medicines given</div>';
+  }
+  if(allMedicines.length){
+    h+='<div class="section-label" style="margin:12px 0 6px">MEDICINES</div>';
+    allMedicines.forEach(function(m){if(!m.active)return;
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">';
+      h+='<span>💊</span><span style="font-size:0.88rem">'+m.displayName+'</span>';
+      h+='<span style="margin-left:auto;font-size:0.78rem;color:var(--muted)">'+m.timesOfDay.join(', ')+'</span>';
+      h+='</div>';
+    });
+    h+='<button onclick="setTab(\'medicine\')" style="margin-top:12px;width:100%;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--muted);font-size:0.85rem">Manage medicines →</button>';
+  }
+  return h;
+}
+
+// Helper: render a stat row
+function statRow(emoji, label, valueHtml) {
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
+    +'<span style="font-size:1.1rem;width:24px;text-align:center">'+emoji+'</span>'
+    +'<span style="color:var(--muted);font-size:0.82rem;min-width:140px">'+label+'</span>'
+    +'<span style="font-size:0.88rem">'+valueHtml+'</span>'
+    +'</div>';
+}
+
+// Stub: feed gap chart (bar chart of time between feeds)
+function drawFeedGaps(canvasId, feeds) {
+  if(!window.Chart||!feeds.length)return;
+  var sorted=[].concat(feeds).sort(function(a,b){return a.startTime-b.startTime;});
+  var gaps=[];
+  for(var i=1;i<sorted.length;i++){
+    var g=Math.round((sorted[i].startTime-(sorted[i-1].endTime||sorted[i-1].startTime))/60000);
+    if(g>0&&g<480)gaps.push({label:pad(sorted[i].startTime.getHours())+':'+pad(sorted[i].startTime.getMinutes()),gap:g});
+  }
+  if(!gaps.length)return;
+  if(charts[canvasId])charts[canvasId].destroy();
+  charts[canvasId]=new Chart(document.getElementById(canvasId).getContext('2d'),{
+    type:'bar',data:{labels:gaps.map(function(g){return g.label;}),
+    datasets:[{label:'Gap (min)',data:gaps.map(function(g){return g.gap;}),backgroundColor:'rgba(249,115,22,0.6)',borderRadius:4}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:function(v){return fmtMin(v);}}}}}
+  });
+}
+
+// Medicine tab redirect to full medicine management
+// (keep full medicine tab rendering — accessible via "Manage medicines" link)
 
 // ==================== PATTERNS ====================
 var tc='#a1a1aa',gc2='rgba(63,63,70,0.5)';
