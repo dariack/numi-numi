@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 
@@ -17,28 +16,36 @@ class InsightsAccordionScreen extends StatefulWidget {
   State<InsightsAccordionScreen> createState() => _InsightsAccordionScreenState();
 }
 
-class _InsightsAccordionScreenState extends State<InsightsAccordionScreen> {
-  String? _open;
+class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabCtrl;
   bool _loading = true;
   Map<String, dynamic>? _feedData;
   Map<String, dynamic>? _diaperData;
-  Map<String, dynamic>? _pumpData;
 
   @override
-  void initState() { super.initState(); _loadAll(); }
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+    _load();
+  }
 
-  Future<void> _loadAll() async {
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     final results = await Future.wait([
       widget.service.getFeedInsights(),
       _loadDiaperData(),
-      Future.value(<String, dynamic>{}), // pump moved to PumpScreen
     ]);
     if (!mounted) return;
     setState(() {
-      _feedData  = results[0] as Map<String, dynamic>;
+      _feedData   = results[0] as Map<String, dynamic>;
       _diaperData = results[1] as Map<String, dynamic>;
-      _pumpData  = results[2] as Map<String, dynamic>;
       _loading = false;
     });
   }
@@ -67,101 +74,48 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen> {
     };
   }
 
-  void _toggle(String id) {
-    HapticFeedback.lightImpact();
-    setState(() => _open = _open == id ? null : id);
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final divColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
     if (_loading) return const Center(child: CircularProgressIndicator());
 
-    return RefreshIndicator(
-      onRefresh: _loadAll,
-      child: ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
-        _section('feed',  '🍼', 'Feeding',     kFeedColor2,  _feedSummary(),  isDark, divColor,
-            _feedData  == null ? null : _FeedPanel(data: _feedData!,   isDark: isDark)),
-        _section('diaper','🧷', 'Diaper',      kDiaperColor2, _diaperSummary(), isDark, divColor,
-            _diaperData == null ? null : _DiaperPanel(data: _diaperData!, isDark: isDark)),
-
-      ]),
-    );
-  }
-
-  Widget _section(String id, String emoji, String label, Color color,
-      String summary, bool isDark, Color divColor, Widget? content) {
-    final isOpen = _open == id;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      InkWell(
-        onTap: () => _toggle(id),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(children: [
-            Text(emoji, style: const TextStyle(fontSize: 22)),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-              const SizedBox(height: 2),
-              Text(summary, style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ])),
-            AnimatedRotation(
-              turns: isOpen ? 0.25 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(Icons.chevron_right,
-                  color: isOpen ? color : Colors.grey.shade600, size: 22),
+    return Column(children: [
+      ListenableBuilder(
+        listenable: _tabCtrl,
+        builder: (context, _) {
+          final color = _tabCtrl.index == 0 ? kFeedColor2 : kDiaperColor2;
+          return TabBar(
+            controller: _tabCtrl,
+            indicatorColor: color,
+            labelColor: color,
+            unselectedLabelColor: Colors.grey.shade500,
+            labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            tabs: const [Tab(text: '🍼 Feed'), Tab(text: '🧷 Diaper')],
+          );
+        },
+      ),
+      Expanded(
+        child: TabBarView(
+          controller: _tabCtrl,
+          children: [
+            RefreshIndicator(
+              onRefresh: _load,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: _FeedPanel(data: _feedData!, isDark: isDark),
+              ),
             ),
-          ]),
+            RefreshIndicator(
+              onRefresh: _load,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: _DiaperPanel(data: _diaperData!, isDark: isDark),
+              ),
+            ),
+          ],
         ),
       ),
-      if (isOpen && content != null) ...[
-        Divider(height: 1, color: color.withOpacity(0.3)),
-        content,
-      ],
-      Divider(height: 1, color: divColor),
     ]);
-  }
-
-  String _feedSummary() {
-    if (_feedData == null) return 'Loading...';
-    final equiv = _feedData!['equiv24h'] as double;
-    final avg   = _feedData!['avg5dEquiv'] as double;
-    if (equiv == 0 && avg == 0) return 'No feed data yet';
-    final b = _badgeStr(equiv, avg);
-    return 'Last 24h: ' + _fmtM(equiv.round()) + '  ·  5d avg: ' + _fmtM(avg.round()) + (b.isNotEmpty ? '  ' + b : '');
-  }
-
-  String _diaperSummary() {
-    if (_diaperData == null) return 'Loading...';
-    final c = _diaperData!['count24h'] as int;
-    final avg = _diaperData!['avg5d'] as double;
-    if (c == 0 && avg == 0) return 'No diaper data yet';
-    final b = _badgeStr(c.toDouble(), avg);
-    return 'Last 24h: ' + c.toString() + '  ·  5d avg: ' + avg.toStringAsFixed(1) + (b.isNotEmpty ? '  ' + b : '');
-  }
-
-  // _pumpSummary removed — pump moved to PumpScreen
-  String _pumpSummaryRemoved() {
-    if (_pumpData == null) return 'Loading...';
-    final p = (_pumpData!['avgPumpedPerDay'] as double).round();
-    final u = (_pumpData!['avgUsedPerDay'] as double).round();
-    return p.toString() + 'ml/day pumped  ·  ' + u.toString() + 'ml/day used';
-  }
-
-  String _badgeStr(double cur, double avg) {
-    if (avg <= 0) return '';
-    final pct = (cur - avg) / avg;
-    if (pct > 0.15) return '↑';
-    if (pct < -0.15) return '↓';
-    return '≈';
-  }
-
-  String _fmtM(int m) {
-    if (m <= 0) return '0m';
-    if (m >= 60) return m ~/ 60 == 0 ? m.toString() + 'm' : (m ~/ 60).toString() + 'h ' + (m % 60).toString() + 'm';
-    return m.toString() + 'm';
   }
 }
 
