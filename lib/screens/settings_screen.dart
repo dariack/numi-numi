@@ -36,17 +36,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   DateTime? _birthDate;
   ReminderSettings _reminders = const ReminderSettings();
   final _nameCtrl = TextEditingController();
+  final _nameFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _load();
+    _nameFocus.addListener(() {
+      if (!_nameFocus.hasFocus) _saveName(_nameCtrl.text);
+    });
   }
 
   @override
   void dispose() {
+    _saveName(_nameCtrl.text);
     _nameCtrl.dispose();
+    _nameFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveName(String raw) async {
+    final name = raw.trim();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('caregiver_name', name);
+    final deviceId = p.getString('device_id') ?? '';
+    if (deviceId.isNotEmpty) {
+      await widget.settingsService.saveCaregiverName(deviceId, name);
+    }
   }
 
   Future<void> _load() async {
@@ -427,31 +443,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 // Caregiver name
                 TextField(
                   controller: _nameCtrl,
+                  focusNode: _nameFocus,
                   decoration: InputDecoration(
                     labelText: 'Your name',
                     hintText: 'e.g. Daria, Mom, Nanny',
                     isDense: true,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  onSubmitted: (v) async {
-                    final name = v.trim();
-                    final p = await SharedPreferences.getInstance();
-                    await p.setString('caregiver_name', name);
-                    // Also persist to Firestore so it survives reinstall
-                    final deviceId = p.getString('device_id') ?? '';
-                    if (deviceId.isNotEmpty && name.isNotEmpty) {
-                      await widget.settingsService.saveCaregiverName(deviceId, name);
-                    }
-                  },
-                  onEditingComplete: () async {
-                    final name = _nameCtrl.text.trim();
-                    final p = await SharedPreferences.getInstance();
-                    await p.setString('caregiver_name', name);
-                    final deviceId = p.getString('device_id') ?? '';
-                    if (deviceId.isNotEmpty && name.isNotEmpty) {
-                      await widget.settingsService.saveCaregiverName(deviceId, name);
-                    }
-                  },
+                  onSubmitted: (_) => _nameFocus.unfocus(),
                 ),
                 const SizedBox(height: 12),
                 Text('Code: ${widget.familyId}',
@@ -498,7 +497,7 @@ class _SettingsToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
@@ -506,18 +505,18 @@ class _SettingsToggle extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(item.emoji, style: const TextStyle(fontSize: 24)),
-          const SizedBox(width: 12),
+          Text(item.emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item.title,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 15)),
+                        fontWeight: FontWeight.w600, fontSize: 14)),
                 Text(item.subtitle,
                     style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                        TextStyle(fontSize: 11, color: Colors.grey.shade500)),
               ],
             ),
           ),

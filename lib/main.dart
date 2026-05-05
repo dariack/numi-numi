@@ -247,16 +247,16 @@ class _MainAppState extends State<MainApp> {
         ),
       ),
       _NavTab(
-        id: 'pump', icon: Icons.water_drop_outlined, selectedIcon: Icons.water_drop,
-        label: 'Pump',
-        builder: () => PumpScreen(service: _service),
-      ),
-      _NavTab(
         id: 'insights', icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,
         label: 'Insights',
         builder: () => InsightsAccordionScreen(
           service: _service,
         ),
+      ),
+      _NavTab(
+        id: 'pump', icon: Icons.water_drop_outlined, selectedIcon: Icons.water_drop,
+        label: 'Pump',
+        builder: () => PumpScreen(service: _service),
       ),
       _NavTab(
         id: 'sleep', icon: Icons.bedtime_outlined, selectedIcon: Icons.bedtime,
@@ -302,7 +302,10 @@ class _MainAppState extends State<MainApp> {
       },
       child: Scaffold(
       appBar: AppBar(title: const Text('Baby Tracker')),
-      body: tabs[safeTab].builder(),
+      body: IndexedStack(
+        index: safeTab,
+        children: tabs.map((t) => t.builder()).toList(),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: safeTab,
         onDestinationSelected: (i) => setState(() => _tab = i),

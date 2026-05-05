@@ -158,7 +158,8 @@ Widget _badge(double cur, double avg) {
   );
 }
 
-Widget _row(String label, String value, double cur, double avg, {String? avgLabel}) {
+Widget _row(String label, String value, double cur, double avg,
+    {String? avgLabel, Widget? extra}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(children: [
@@ -171,7 +172,38 @@ Widget _row(String label, String value, double cur, double avg, {String? avgLabe
         const SizedBox(width: 6),
         Text(avgLabel, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
       ],
+      if (extra != null) ...[
+        const SizedBox(width: 6),
+        extra,
+      ],
     ]),
+  );
+}
+
+// Trend badge: shows delta in minutes vs previous period (positive = gap got longer)
+Widget _gapTrendBadge(double cur, double prev) {
+  if (prev <= 0 || cur <= 0) return const SizedBox.shrink();
+  final delta = cur - prev;
+  if (delta.abs() < 5) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          color: Colors.grey.withOpacity(0.12)),
+      child: const Text('≈ prev', style: TextStyle(
+          fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey)),
+    );
+  }
+  final isUp = delta > 0;
+  final absMins = delta.abs().round();
+  final text = (isUp ? '+' : '−') + _fmtMins(absMins);
+  final color = isUp ? _kGreen : _kRed;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+    decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6), color: color.withOpacity(0.12)),
+    child: Text(text, style: TextStyle(
+        fontSize: 11, fontWeight: FontWeight.w700, color: color)),
   );
 }
 
@@ -210,13 +242,15 @@ class _FeedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final equiv24h    = data['equiv24h']    as double;
-    final avg5d       = data['avg5dEquiv']  as double;
-    final dur24h      = data['dur24h']      as int;
-    final ml24h       = data['ml24h']       as int;
-    final avgDuration = data['avgDuration'] as double;
-    final avgGapDay   = data['avgGapDay']   as double;
-    final avgGapNight = data['avgGapNight'] as double;
+    final equiv24h       = data['equiv24h']        as double;
+    final avg5d          = data['avg5dEquiv']       as double;
+    final dur24h         = data['dur24h']           as int;
+    final ml24h          = data['ml24h']            as int;
+    final avgDuration    = data['avgDuration']      as double;
+    final avgGapDay      = data['avgGapDay']        as double;
+    final avgGapNight    = data['avgGapNight']      as double;
+    final avgGapDayPrev  = data['avgGapDayPrev']    as double? ?? 0;
+    final avgGapNightPrev= data['avgGapNightPrev']  as double? ?? 0;
 
     // Estimate feed count
     final estCount24h = avgDuration > 0 ? (dur24h / avgDuration).round()
@@ -224,6 +258,7 @@ class _FeedPanel extends StatelessWidget {
     final estAvgCount = avgDuration > 0
         ? avg5d / avgDuration
         : avg5d > 0 ? avg5d / 30.0 : 0.0;
+    final avgBreastTotal = avgDuration > 0 ? avgDuration * estAvgCount : 0.0;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -235,16 +270,20 @@ class _FeedPanel extends StatelessWidget {
           _row('Sessions', estCount24h.toString(), estCount24h.toDouble(), estAvgCount,
               avgLabel: 'avg ' + estAvgCount.toStringAsFixed(1)),
         if (dur24h > 0)
-          _row('Breast time', _fmtMins(dur24h), dur24h.toDouble(),
-              avgDuration > 0 ? avgDuration * estAvgCount : 0),
+          _row('Breast time', _fmtMins(dur24h), dur24h.toDouble(), avgBreastTotal,
+              avgLabel: avgBreastTotal > 0 ? 'avg ' + _fmtMins(avgBreastTotal) : null),
         if (ml24h > 0)
           _row('Pumped fed', ml24h.toString() + 'ml', 0, 0),
         if (avgGapDay > 0 || avgGapNight > 0) ...[
           _subHeader('AVG FEED GAP (5D AVG)'),
           if (avgGapDay > 0)
-            _row('Day (10am-10pm)', _fmtMins(avgGapDay), 0, 0),
+            _row('Day (10am-10pm)', _fmtMins(avgGapDay), 0, 0,
+                avgLabel: avgGapDayPrev > 0 ? 'prev ' + _fmtMins(avgGapDayPrev) : null,
+                extra: _gapTrendBadge(avgGapDay, avgGapDayPrev)),
           if (avgGapNight > 0)
-            _row('Night (10pm-10am)', _fmtMins(avgGapNight), 0, 0),
+            _row('Night (10pm-10am)', _fmtMins(avgGapNight), 0, 0,
+                avgLabel: avgGapNightPrev > 0 ? 'prev ' + _fmtMins(avgGapNightPrev) : null,
+                extra: _gapTrendBadge(avgGapNight, avgGapNightPrev)),
         ],
       ]),
     );

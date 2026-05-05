@@ -119,12 +119,21 @@ class _PumpScreenState extends State<PumpScreen> {
                     const SizedBox(width: 8),
                     Expanded(child: Text(storageMap[s].toString() + 'ml',
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
-                    Text(bc.toString() + ' bottle' + (bc == 1 ? '' : 's'),
+                    Text(bc.toString() + ' portion' + (bc == 1 ? '' : 's'),
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   ]),
                 );
               }),
               if (storageMap.isNotEmpty) ...[
+                Builder(builder: (_) {
+                  final totalMl = storageMap.values.fold(0, (s, v) => s + v);
+                  final feeds = (totalMl / 90).round();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text('~$feeds feed${feeds == 1 ? '' : 's'} from ${totalMl}ml total',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                  );
+                }),
                 Divider(height: 16, color: borderColor),
                 // Individual bottles
                 ...sorted.map((u) {
@@ -181,17 +190,17 @@ class _PumpScreenState extends State<PumpScreen> {
                 final pumpedMl = u['pumpedMl'] as int;
                 final id = u['pumpId'];
                 final fullyUsedItem = u['fullyUsed'] as bool;
-                final usedMl = u['usedMl'] as int;
+                final usedMl = u['totalUsed'] as int;
                 return Opacity(
                   opacity: fullyUsedItem ? 0.4 : 1.0,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 5),
                     child: Row(children: [
                       Text(pad2(pumpedAt.day) + '/' + pad2(pumpedAt.month),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       const SizedBox(width: 8),
                       Text(pad2(pumpedAt.hour) + ':' + pad2(pumpedAt.minute),
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                       const SizedBox(width: 8),
                       if (id != null)
                         Text('#' + id.toString(),

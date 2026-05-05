@@ -149,7 +149,7 @@ class MedicineService {
             'slotTime': slotTime,
             'slotDate': slotDate,
             'dayLabel': fmtSlotLabel(slotDate, timeSlot, dayOffset),
-            'isOverdue': !isToday || now.difference(slotTime).inMinutes > 30,
+            'isOverdue': !isToday || now.difference(slotTime).inHours >= 18,
           });
         }
       }

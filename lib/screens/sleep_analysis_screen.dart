@@ -1,10 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 
 // ── Colours ──────────────────────────────────────────────────────────
 const _kIndigo = Color(0xFF6366f1);
-const _kTeal   = Color(0xFF2dd4bf);
 const _kOrange = Color(0xFFf97316);
 const _kGreen  = Color(0xFF22c55e);
 const _kAmber  = Color(0xFFf59e0b);
@@ -88,7 +88,6 @@ String _fmtTime(DateTime d) =>
     '${d.hour.toString().padLeft(2, "0")}:${d.minute.toString().padLeft(2, "0")}';
 
 List<String> _ageTips(String bracket, int? weeks) {
-  final w = weeks?.toString() ?? '?';
   const tips = {
     '0-6w': [
       '😴 No sleep training at this age — just observe and respond.',
@@ -172,11 +171,13 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       widget.service.getBirthDate(),
       widget.service.getRecentEvents(days: 10),
     ]);
-    if (mounted) setState(() {
-      _birthDate = results[0] as DateTime?;
-      _allEvents = results[1] as List<BabyEvent>;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _birthDate = results[0] as DateTime?;
+        _allEvents = results[1] as List<BabyEvent>;
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -202,44 +203,28 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     final baseOffset = now.hour < 8 ? _selectedNightOffset + 1 : _selectedNightOffset;
     var lastNightBase = DateTime(now.year, now.month, now.day - baseOffset);
     final lastNight = _nightWindow(lastNightBase);
-    final lastNightStrict = _strictNightWindow(lastNightBase);
     // Use full window (18:00–08:00) for gap inference so early bedtimes are captured
     final lastNightGaps = _inferNightSleep(actionEvents, lastNight.start, lastNight.end, gapMin);
     final lastNightEvents = actionEvents
         .where((e) => !e.startTime.isBefore(lastNight.start) && !e.startTime.isAfter(lastNight.end))
         .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-    final longestStretch = lastNightGaps.isEmpty ? 0 :
-        lastNightGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-    // Total sleep and wakings only count gaps within the strict 22:00–08:00 window
-    final strictGaps = _inferNightSleep(actionEvents, lastNightStrict.start, lastNightStrict.end, gapMin);
-    final totalSleep = strictGaps.fold(0, (s, g) => s + g.minutes);
-    final wakings = (strictGaps.length - 1).clamp(0, 99);
-
     // 7-day trend
-    final nightData = <({String label, int longest, int total})>[];
+    final nightData = <({String label, int longest})>[];
     for (int di = 7; di >= 1; di--) {
       final base = DateTime(now.year, now.month, now.day - di);
       final win = _nightWindow(base);
-      final strictWin = _strictNightWindow(base);
       // Longest stretch: full window (catches early bedtimes)
       final gaps = _inferNightSleep(actionEvents, win.start, win.end, gapMin);
       final longest = gaps.isEmpty ? 0 : gaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-      // Total sleep: strict 22:00-08:00 window
-      final strictGaps7 = _inferNightSleep(actionEvents, strictWin.start, strictWin.end, gapMin);
-      final total = strictGaps7.fold(0, (s, g) => s + g.minutes);
       nightData.add((
         label: '${base.day.toString().padLeft(2, "0")}/${base.month.toString().padLeft(2, "0")}',
         longest: longest,
-        total: total,
       ));
     }
     final validLongest = nightData.where((d) => d.longest > 0).toList();
     final avgLongest = validLongest.isEmpty ? 0 :
         validLongest.fold(0, (s, d) => s + d.longest) ~/ validLongest.length;
-    final validTotal = nightData.where((d) => d.total > 0).toList();
-    final avgTotal = validTotal.isEmpty ? 0 :
-        validTotal.fold(0, (s, d) => s + d.total) ~/ validTotal.length;
 
     // Evening / cluster feeding
     final eveningData = <({DateTime lastFeedTime, bool isCluster, int firstStretch})>[];
@@ -364,6 +349,58 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       }
     }
 
+    // ── Narrative log for selected night ──────────────────────────────
+    final List<Widget> narrativeWidgets = [];
+    if (lastNightEvents.isNotEmpty || lastNightGaps.isNotEmpty) {
+      final sortedNarGaps = [...lastNightGaps]..sort((a, b) => a.start.compareTo(b.start));
+      DateTime cursor = lastNight.start;
+      for (int gi = 0; gi <= sortedNarGaps.length; gi++) {
+        final isLast = gi == sortedNarGaps.length;
+        final windowEnd = isLast ? lastNight.end : sortedNarGaps[gi].start;
+        final wakeEvs = lastNightEvents
+            .where((e) => !e.startTime.isBefore(cursor) && e.startTime.isBefore(windowEnd))
+            .toList();
+        if (wakeEvs.isNotEmpty) {
+          final feeds = wakeEvs.where((e) => e.type == EventType.feed).toList();
+          final diapers = wakeEvs.where((e) => e.type == EventType.diaper).toList();
+          int breastMin = 0; int pumpMl = 0;
+          for (final f in feeds) {
+            if (f.source == 'pump') {
+              int ml = f.mlFed ?? 0;
+              if (ml == 0 && f.linkedPumps != null) {
+                try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
+              }
+              pumpMl += ml;
+            } else {
+              breastMin += f.durationMinutes ?? 0;
+            }
+          }
+          final parts = <String>[];
+          if (feeds.isNotEmpty) {
+            final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
+            parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
+          }
+          if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
+          if (parts.isNotEmpty) {
+            narrativeWidgets.add(_NarrativeRow(
+              time: _fmtTime(wakeEvs.first.startTime),
+              text: parts.join('  ·  '),
+              isSleep: false,
+            ));
+          }
+        }
+        if (!isLast) {
+          final gap = sortedNarGaps[gi];
+          narrativeWidgets.add(_NarrativeRow(
+            time: _fmtTime(gap.start),
+            text: 'slept for ${_fmtHm(gap.minutes)}',
+            isSleep: true,
+          ));
+          cursor = gap.end;
+        }
+      }
+    }
+
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -423,8 +460,25 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
                     .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
                     .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
                 final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-                final pgTotal = pgStrictGaps.fold(0, (s, g) => s + g.minutes);
                 final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
+                // Evening feeds (18:00–22:00)
+                final pgEveStart = DateTime(pgBase.year, pgBase.month, pgBase.day, 18);
+                final pgEveEnd = DateTime(pgBase.year, pgBase.month, pgBase.day, 22);
+                final pgEveFeeds = feedEvents.where((e) => !e.startTime.isBefore(pgEveStart) && e.startTime.isBefore(pgEveEnd)).toList();
+                int pgEveBreastMin = 0; int pgEveMl = 0;
+                for (final f in pgEveFeeds) {
+                  if (f.source == 'pump') {
+                    int ml = f.mlFed ?? 0;
+                    if (ml == 0 && f.linkedPumps != null) {
+                      try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
+                    }
+                    pgEveMl += ml;
+                  } else {
+                    pgEveBreastMin += f.durationMinutes ?? 0;
+                  }
+                }
+                final pgEveParts = [if (pgEveBreastMin > 0) _fmtHm(pgEveBreastMin), if (pgEveMl > 0) '${pgEveMl}ml'];
+                final pgEveValue = pgEveFeeds.isEmpty ? '--' : pgEveParts.isNotEmpty ? pgEveParts.join('+') : '${pgEveFeeds.length}×';
                 final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
 
                 return Padding(
@@ -440,7 +494,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
                       Row(children: [
                         Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
                         const SizedBox(width: 8),
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌙', value: pgTotal > 0 ? _fmtHm(pgTotal) : '--', label: 'Total sleep', sub: '22:00–08:00', color: _kTeal)),
+                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌆', value: pgEveValue, label: 'Evening feeds', sub: '18–22h', color: _kOrange)),
                         const SizedBox(width: 8),
                         Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
                       ]),
@@ -463,28 +517,29 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
           ),
           const SizedBox(height: 16),
 
+          // ── Night narrative log ─────────────────────────────────
+          if (narrativeWidgets.isNotEmpty) ...[
+            _SectionLabel('📋 Night Log · ${_fmtDate(lastNightBase)}'),
+            _Card(cardBg: cardBg, child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: narrativeWidgets,
+            )),
+          ],
+
           // ── 2. 7-Day Trend ──────────────────────────────────────
           _SectionLabel('📊 7-Day Trend'),
           _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _MiniBarChart(
-              data: nightData.map((d) => (label: d.label, v1: d.longest, v2: d.total)).toList(),
+              data: nightData.map((d) => (label: d.label, v1: d.longest)).toList(),
               color1: _kIndigo,
-              color2: _kTeal.withOpacity(0.5),
               benchmark: bm,
             ),
             const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: Column(children: [
-                Text(avgLongest > 0 ? _fmtHm(avgLongest) : '--',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kIndigo)),
-                Text('Avg longest stretch', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
-              ])),
-              Expanded(child: Column(children: [
-                Text(avgTotal > 0 ? _fmtHm(avgTotal) : '--',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kTeal)),
-                Text('Avg total sleep', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
-              ])),
-            ]),
+            Center(child: Column(children: [
+              Text(avgLongest > 0 ? _fmtHm(avgLongest) : '--',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kIndigo)),
+              Text('Avg longest stretch', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
+            ])),
             const SizedBox(height: 8),
             _Blurb(bracket != null
                 ? 'Age benchmark: ${_fmtHm(bm)} longest stretch for $weeks-week baby (dashed line). Individual variation is normal.'
@@ -864,57 +919,45 @@ class _NightTimeline extends StatelessWidget {
 
 // Mini bar chart for 7-day trend
 class _MiniBarChart extends StatelessWidget {
-  final List<({String label, int v1, int v2})> data;
-  final Color color1, color2;
+  final List<({String label, int v1})> data;
+  final Color color1;
   final int benchmark;
-  const _MiniBarChart({required this.data, required this.color1, required this.color2, required this.benchmark});
+  const _MiniBarChart({required this.data, required this.color1, required this.benchmark});
 
   @override
   Widget build(BuildContext context) {
-    final maxVal = [
-      ...data.map((d) => d.v1),
-      ...data.map((d) => d.v2),
-      benchmark,
-    ].reduce((a, b) => a > b ? a : b);
+    final maxVal = [...data.map((d) => d.v1), benchmark].reduce((a, b) => a > b ? a : b);
+    if (maxVal == 0) return const SizedBox(height: 80);
 
-    return SizedBox(height: 80, child: LayoutBuilder(builder: (context, c) {
+    const barH = 56.0;
+    const labelH = 16.0;
+    return SizedBox(height: barH + labelH, child: LayoutBuilder(builder: (context, c) {
       final barW = (c.maxWidth - data.length * 4) / data.length;
-      final bmY = (1 - benchmark / maxVal) * 60;
+      final bmY = (1 - benchmark / maxVal) * barH;
       return Stack(children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          ...data.map((d) => Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
-              // v2 (total, teal, behind)
-              if (d.v2 > 0) Container(
-                width: barW,
-                height: (d.v2 / maxVal * 60).clamp(2.0, 60.0).toDouble(),
-                decoration: BoxDecoration(color: color2, borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
-              ),
-              // v1 (longest, indigo) — stacked on top but shown separately via overlap
-            ]),
-          )),
-        ]),
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          ...data.map((d) => Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
-              if (d.v1 > 0) Container(
-                width: barW,
-                height: (d.v1 / maxVal * 60).clamp(2.0, 60.0).toDouble(),
-                decoration: BoxDecoration(color: color1.withOpacity(0.85), borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
-              ) else SizedBox(width: barW, height: 0),
-            ]),
-          )),
-        ]),
+        // Bars
+        Positioned(top: 0, left: 0, right: 0, bottom: labelH,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            ...data.map((d) => Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                if (d.v1 > 0) Container(
+                  width: barW,
+                  height: (d.v1 / maxVal * barH).clamp(2.0, barH),
+                  decoration: BoxDecoration(color: color1.withOpacity(0.85), borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
+                ) else SizedBox(width: barW, height: 0),
+              ]),
+            )),
+          ]),
+        ),
         // Benchmark dashed line
         Positioned(
-          top: bmY,
+          top: bmY.clamp(0.0, barH - 1),
           left: 0, right: 0,
           child: CustomPaint(painter: _DashedLinePainter(color: color1.withOpacity(0.7))),
         ),
         // Labels
-        Positioned(bottom: 0, left: 0, right: 0,
+        Positioned(bottom: 0, left: 0, right: 0, height: labelH,
           child: Row(children: data.map((d) => SizedBox(
             width: barW + 4,
             child: Text(d.label, style: TextStyle(fontSize: 7, color: Colors.grey.shade600), textAlign: TextAlign.center),
@@ -922,6 +965,31 @@ class _MiniBarChart extends StatelessWidget {
         ),
       ]);
     }));
+  }
+}
+
+class _NarrativeRow extends StatelessWidget {
+  final String time, text;
+  final bool isSleep;
+  const _NarrativeRow({required this.time, required this.text, required this.isSleep});
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(width: 44, child: Text(time, style: TextStyle(
+          fontSize: 12, fontWeight: FontWeight.w600,
+          color: isSleep ? _kIndigo : Colors.grey.shade500,
+        ))),
+        const SizedBox(width: 6),
+        Expanded(child: Text(text, style: TextStyle(
+          fontSize: 13, height: 1.3,
+          color: isSleep ? cs.onSurface : Colors.grey.shade500,
+          fontWeight: isSleep ? FontWeight.w500 : FontWeight.normal,
+        ))),
+      ]),
+    );
   }
 }
 
@@ -947,8 +1015,8 @@ class _DayFeedChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxVal = data.map((d) => d.count).reduce((a, b) => a > b ? a : b).clamp(1, 999);
-    return SizedBox(height: 60, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
-      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3.0, 40.0) : 0.0;
+    return SizedBox(height: 75, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
+      final px = d.count > 0 ? (d.count / maxVal * 42).clamp(3.0, 42.0) : 0.0;
       final isBright = d.count >= 4;
       return Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
         if (d.count > 0) Text('${d.count}', style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
@@ -971,8 +1039,8 @@ class _NightFeedChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxVal = data.map((d) => d.count).reduce((a, b) => a > b ? a : b).clamp(1, 999);
-    return SizedBox(height: 60, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
-      final px = d.count > 0 ? (d.count / maxVal * 40).clamp(3.0, 40.0) : 0.0;
+    return SizedBox(height: 75, child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: data.map((d) {
+      final px = d.count > 0 ? (d.count / maxVal * 42).clamp(3.0, 42.0) : 0.0;
       return Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
         if (d.count > 0) Text('${d.count}', style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
         const SizedBox(height: 2),

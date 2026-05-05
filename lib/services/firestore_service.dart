@@ -178,6 +178,20 @@ class FirestoreService {
     } catch (_) { return {}; }
   }
 
+  /// Real-time stream of {deviceId → name} for all family devices.
+  Stream<Map<String, String>> deviceNamesStream() {
+    return _db.collection('families').doc(familyId).collection('devices')
+        .snapshots()
+        .map((snap) {
+      final map = <String, String>{};
+      for (final doc in snap.docs) {
+        final name = doc.data()['name'] as String?;
+        if (name != null && name.isNotEmpty) map[doc.id] = name;
+      }
+      return map;
+    });
+  }
+
   Future<DateTime?> getBirthDate() async {
     try {
       final doc = await _db.collection('families').doc(familyId)
@@ -432,17 +446,20 @@ class FirestoreService {
 
     final sideRec = await getSideRecommendation();
 
-    // Combined ml+duration: 60ml ≈ 30min
+    // Combined ml+duration: 90ml ≈ 20min (one big feed)
     double feedMinEquiv(BabyEvent f) {
-      if (f.durationMinutes != null) return f.durationMinutes!.toDouble();
-      int ml = f.mlFed ?? 0;
-      if (ml == 0 && f.linkedPumps != null) {
-        try {
-          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
-          ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
-        } catch (_) {}
+      // Pump-source feeds: always convert ml → equiv minutes; ignore duration (always 0)
+      if (f.source == 'pump') {
+        int ml = f.mlFed ?? 0;
+        if (ml == 0 && f.linkedPumps != null) {
+          try {
+            final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+            ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+          } catch (_) {}
+        }
+        return ml > 0 ? ml * 20.0 / 90.0 : 0;
       }
-      if (ml > 0) return ml / 2.0;
+      if (f.durationMinutes != null) return f.durationMinutes!.toDouble();
       return 0;
     }
 
@@ -519,6 +536,16 @@ class FirestoreService {
     final avgGapDay = _avgSessionGapInWindow(sessions5d, (h) => h >= 10 && h < 22);
     final avgGapNight = _avgSessionGapInWindow(sessions5d, (h) => h >= 22 || h < 10);
 
+    // Prev 5d (10–5 days ago) for trend comparison
+    final tenDaysAgo = now.subtract(const Duration(days: 10));
+    final feedsPrev5d = feeds
+        .where((f) => f.startTime.isAfter(tenDaysAgo) && !f.startTime.isAfter(fiveDaysAgo))
+        .toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final sessionsPrev5d = _buildSessions(feedsPrev5d);
+    final avgGapDayPrev = _avgSessionGapInWindow(sessionsPrev5d, (h) => h >= 10 && h < 22);
+    final avgGapNightPrev = _avgSessionGapInWindow(sessionsPrev5d, (h) => h >= 22 || h < 10);
+
     return {
       'timeSinceLast': timeSinceLast,
       ...sideRec,
@@ -529,6 +556,8 @@ class FirestoreService {
       'avgDuration': avgDuration,
       'avgGapDay': avgGapDay,
       'avgGapNight': avgGapNight,
+      'avgGapDayPrev': avgGapDayPrev,
+      'avgGapNightPrev': avgGapNightPrev,
       // keep legacy keys for compatibility
       'todayEquiv': equiv24h,
       'todayDurOnly': dur24h,

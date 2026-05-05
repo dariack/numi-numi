@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' as io;
+import 'dart:math' as math;
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,8 +13,12 @@ import '../services/medicine_service.dart';
 import '../services/reminder_service.dart';
 import '../models/medicine.dart';
 import '../services/settings_service.dart';
+import '../services/notification_service.dart';
 import '../services/widget_service.dart';
 import 'log_event_sheet.dart';
+import 'history_screen.dart';
+import '../services/handoff_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const kSleepColor = Color(0xFFa78bfa);
 const kFeedColor = Colors.orange;
@@ -22,8 +30,9 @@ class HomeScreen extends StatefulWidget {
   final TrackerSettings settings;
   final MedicineService? medicineService;
   final ReminderService? reminderService;
+  final SettingsService? settingsService;
   final void Function(String)? onTabChange;
-  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.onTabChange});
+  const HomeScreen({super.key, required this.service, required this.settings, this.medicineService, this.reminderService, this.settingsService, this.onTabChange});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -31,16 +40,26 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<List<BabyEvent>>? _streamSub;
   String? _myDeviceId;
-  BabyEvent? _partnerLastEvent;
+  String _myCaregiverName = '';
+  List<BabyEvent> _partnerRecentEvents = [];
+  final Set<String> _seenPartnerEventIds = {};
   DateTime? _partnerEventSeen;
   final Map<String, String> _deviceNames = {};
   final Set<String> _dismissedReminders = {};
+  final Set<String> _dismissedSuggestions = {};
+  final Set<String> _dismissedStripEventIds = {};
+  bool _partnerInitialized = false; // skip notification on first stream emission
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
   bool _loading = true;
   List<Medicine> _medicines = [];
   List<Map<String, dynamic>> _pendingReminders = [];
   StreamSubscription<List<Medicine>>? _medicinesSub;
+  StreamSubscription<Map<String, String>>? _deviceNamesSub;
+
+  int _logCount = 0;
+  int _nextConfettiAt = 0; // set on first log
+  DateTime? _birthDate;
 
   // Only used to refresh "X min ago" labels — no data re-fetching
   Timer? _tickTimer;
@@ -55,20 +74,56 @@ class _HomeScreenState extends State<HomeScreen> {
     _subscribeStream();
     _subscribeMedicines();
     _loadDeviceId();
+    _loadBirthDate();
+    _deviceNamesSub = widget.service.deviceNamesStream().listen((names) {
+      if (mounted) setState(() => _deviceNames
+        ..clear()
+        ..addAll(names));
+    });
     // Tick timer is set up in _subscribeMedicines (60s interval)
   }
 
   static const _affirmations = [
-    "🌟 Amazing job!", "💪 You're crushing it!", "❤️ Nailing parenthood!",
-    "🏆 Super parent!", "✨ You're doing great!", "🌈 Keep it up!",
-    "👏 Brilliant!", "🥇 Parent of the day!", "💛 You've got this!",
-    "🌸 Wonderful!", "🎉 Way to go!", "💫 Superstar!",
+    "Real heroes feed at 3am 🍼",
+    "You're more capable than you know 💪",
+    "Yuli is so lucky to have you ✨",
+    "Every log is an act of love ❤️",
+    "Sleep-deprived and still crushing it 🌙",
+    "You're building the most important bond 🌟",
+    "No manual needed — you've got this 💛",
+    "Best mama in the universe 🌍",
+    "You noticed, you showed up, you cared 🏆",
+    "Tired? Yes. Amazing? Absolutely. 💫",
+    "Yuli is growing because of you 👶",
+    "This is what unconditional love looks like 💖",
+    "Every small moment adds up to everything 🌸",
+    "You are your baby's whole world 🌈",
+    "Superhero status: confirmed 🦸",
+    "You're doing the hardest and most beautiful job 🎀",
+    "Look at you — tracking every little thing 📋",
+    "Postpartum warrior right here 🔥",
+    "Strong mama, happy baby 💕",
+    "You showed up today — that's everything 🥇",
+    "The love you give is immeasurable 🌻",
+    "You make it look effortless (we know it's not) ✨",
+    "World's most dedicated parent 🏅",
+    "Every feed, every change, every cuddle — it counts 💝",
+    "You're not just surviving — you're thriving 🌷",
   ];
 
   void _showConfetti(BuildContext ctx) {
+    _logCount++;
+    if (_nextConfettiAt == 0) {
+      // First log: pick a random threshold between 3 and 7
+      _nextConfettiAt = 3 + math.Random().nextInt(5);
+    }
+    if (_logCount < _nextConfettiAt) return;
+    // Reset threshold for next surprise
+    _nextConfettiAt = _logCount + 3 + math.Random().nextInt(5);
+
     final overlay = Overlay.of(ctx);
-    final rand = DateTime.now().millisecondsSinceEpoch;
-    final msg = _affirmations[rand % _affirmations.length];
+    final rng = math.Random();
+    final msg = _affirmations[rng.nextInt(_affirmations.length)];
     late OverlayEntry entry;
     entry = OverlayEntry(builder: (_) => _ConfettiOverlay(
       message: msg,
@@ -81,29 +136,115 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
     if (id == null) {
-      id = 'device_' + DateTime.now().millisecondsSinceEpoch.toString();
+      // Use hostname as a stable base so device_id survives app reinstall.
+      // Falls back to timestamp on web or if hostname is unavailable.
+      String stableId;
+      if (!kIsWeb) {
+        try {
+          final host = io.Platform.localHostname;
+          final clean = host.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+          stableId = clean.isNotEmpty ? 'dev_$clean' : 'device_${DateTime.now().millisecondsSinceEpoch}';
+        } catch (_) {
+          stableId = 'device_${DateTime.now().millisecondsSinceEpoch}';
+        }
+      } else {
+        stableId = 'web_${DateTime.now().millisecondsSinceEpoch}';
+      }
+      id = stableId;
       await prefs.setString('device_id', id);
     }
-    final name = prefs.getString('caregiver_name') ?? '';
-    if (name.isNotEmpty) widget.service.updateDeviceName(id!, name);
-    final names = await widget.service.getDeviceNames();
-    if (mounted) setState(() { _myDeviceId = id; _deviceNames.addAll(names); });
+
+    // Recover caregiver name from Firestore if SharedPreferences was wiped (e.g. reinstall).
+    String name = prefs.getString('caregiver_name') ?? '';
+    if (name.isEmpty) {
+      final recovered = await widget.settingsService?.loadCaregiverName(id);
+      if (recovered != null && recovered.isNotEmpty) {
+        name = recovered;
+        await prefs.setString('caregiver_name', name);
+      }
+    }
+
+    if (name.isNotEmpty) widget.service.updateDeviceName(id, name);
+    if (mounted) setState(() { _myDeviceId = id; _myCaregiverName = name; });
+    // Re-run in case events stream fired before device ID was ready
+    if (_events.isNotEmpty) _checkPartnerActivity(_events);
   }
 
   void _checkPartnerActivity(List<BabyEvent> events) {
     if (_myDeviceId == null) return;
-    final recent = events.where((e) =>
+
+    // All devices (including self) within 10 min — for the strip
+    final allRecent = events.where((e) =>
         e.createdBy != null &&
-        e.createdBy != _myDeviceId &&
         DateTime.now().difference(e.startTime).inMinutes < 10).toList();
-    if (recent.isEmpty) {
-      if (mounted && _partnerLastEvent != null)
-        setState(() { _partnerLastEvent = null; _partnerEventSeen = null; });
+
+    // Partner-only events — for OS notifications (never notify self)
+    final partnerRecent = allRecent.where((e) => e.createdBy != _myDeviceId).toList();
+
+    final wasInitialized = _partnerInitialized;
+    _partnerInitialized = true;
+
+    // Fire notifications for new partner events only
+    final newPartnerEvents = wasInitialized
+        ? partnerRecent.where((e) => !_seenPartnerEventIds.contains(e.id)).toList()
+        : <BabyEvent>[];
+
+    if (newPartnerEvents.isNotEmpty) {
+      _seenPartnerEventIds.addAll(newPartnerEvents.map((e) => e.id));
+      final byCaregiver = <String, List<BabyEvent>>{};
+      for (final e in newPartnerEvents) { (byCaregiver[e.createdBy!] ??= []).add(e); }
+      for (final entry in byCaregiver.entries) {
+        final name = entry.value.first.createdByName ?? _deviceNames[entry.key] ?? 'Partner';
+        final evtNames = entry.value.map((e) => _stripLabel(e)).join(', ');
+        NotificationService.instance.showPartnerActivity(
+          caregiverName: name,
+          eventName: evtNames,
+        );
+      }
+    }
+
+    // Update strip with all recent events (any device)
+    if (allRecent.isEmpty) {
+      if (mounted && _partnerRecentEvents.isNotEmpty)
+        setState(() { _partnerRecentEvents = []; _partnerEventSeen = null; });
       return;
     }
-    final newest = recent.first;
-    if (newest.id != _partnerLastEvent?.id)
-      if (mounted) setState(() { _partnerLastEvent = newest; _partnerEventSeen = DateTime.now(); });
+
+    final same = allRecent.length == _partnerRecentEvents.length &&
+        allRecent.map((e) => e.id).toSet().containsAll(_partnerRecentEvents.map((e) => e.id));
+    if (!same || newPartnerEvents.isNotEmpty) {
+      if (mounted) setState(() {
+        _partnerRecentEvents = allRecent;
+        if (newPartnerEvents.isNotEmpty) _partnerEventSeen = DateTime.now();
+      });
+    }
+  }
+
+  String _stripLabel(BabyEvent e) {
+    switch (e.type) {
+      case EventType.feed:
+        if (e.source == 'pump') {
+          int? ml = e.mlFed;
+          if (ml == null && e.linkedPumps != null) {
+            try {
+              final list = List<Map<String, dynamic>>.from(jsonDecode(e.linkedPumps!));
+              ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+            } catch (_) {}
+          }
+          return ml != null ? 'fed pumped milk · ${ml}ml' : 'fed pumped milk';
+        }
+        if (e.isOngoing) return 'started feeding${e.side != null ? ' · ${e.side}' : ''}';
+        return 'finished feeding${e.side != null ? ' · ${e.side}' : ''}${e.durationMinutes != null ? ' · ${e.durationText}' : ''}';
+      case EventType.sleep:
+        if (e.isOngoing) return 'started sleeping';
+        return 'finished sleeping${e.durationMinutes != null ? ' · ${e.durationText}' : ''}';
+      case EventType.diaper:
+        if (e.pee && e.poop) return 'diaper · pee + poop';
+        if (e.poop) return 'diaper · poop';
+        return 'diaper · pee';
+      case EventType.pump:
+        return e.ml != null ? 'pumped · ${e.ml}ml' : 'pump session';
+    }
   }
 
   List<String> _getSuggestions(Map<String, dynamic> stats) {
@@ -179,10 +320,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final reminders = await widget.medicineService!.getPendingReminders(medicines);
       if (mounted) setState(() => _pendingReminders = reminders);
     });
-    // Refresh reminders every minute (time-based)
+    // Refresh reminders + partner strip every minute (time-based)
     _tickTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
       if (!mounted) return;
-      setState(() {}); // refresh time labels
+      setState(() {}); // refresh time labels and prune partner strip
+      if (_events.isNotEmpty) _checkPartnerActivity(_events);
       if (widget.medicineService != null && _medicines.isNotEmpty) {
         final reminders = await widget.medicineService!.getPendingReminders(_medicines);
         if (mounted) setState(() => _pendingReminders = reminders);
@@ -199,8 +341,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _stats = stats;
         _loading = false;
       });
+      _checkPartnerActivity(events);
       _widgetService.update();
-      // Reschedule reminders whenever event list changes (catches partner actions too)
       widget.reminderService?.rescheduleAll(events);
     }, onError: (_) {
       if (mounted) setState(() => _loading = false);
@@ -219,43 +361,13 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (_) => LogEventSheet(
           type: type,
           service: widget.service,
-          ongoing: (ongoing != null && ongoing.type == type) ? ongoing : null),
+          ongoing: (ongoing != null && ongoing.type == type) ? ongoing : null,
+          deviceId: _myDeviceId ?? 'app',
+          caregiverName: _myCaregiverName),
     );
     if (result != null) {
       HapticFeedback.lightImpact();
       _showConfetti(context);
-      if (!mounted) return;
-      String msg;
-      if (result is BabyEvent) {
-        final t =
-            '${result.startTime.hour.toString().padLeft(2, "0")}:${result.startTime.minute.toString().padLeft(2, "0")}';
-        msg = '${result.displayName} at $t';
-        if (result.durationMinutes != null) msg += ' · ${result.durationText}';
-        if (result.side != null) msg += ' · ${result.side}';
-        if (result.ml != null) msg += ' · ${result.ml}ml';
-        if (result.isOngoing) msg += ' (ongoing)';
-      } else {
-        msg = ongoing != null && ongoing.type == type
-            ? '${type.name} ended'
-            : '${type.name} logged';
-      }
-      if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.clearSnackBars();
-      messenger.showSnackBar(SnackBar(
-        content: Text('✓ $msg'),
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        dismissDirection: DismissDirection.horizontal,
-        action: result is BabyEvent
-            ? SnackBarAction(
-                label: 'UNDO',
-                onPressed: () async {
-                  await widget.service.deleteEvent(result.id);
-                  // Stream handles UI update automatically
-                })
-            : null,
-      ));
     }
   }
 
@@ -273,8 +385,41 @@ class _HomeScreenState extends State<HomeScreen> {
   String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, "0")}:${t.minute.toString().padLeft(2, "0")}';
 
+  Future<void> _loadBirthDate() async {
+    final bd = await widget.settingsService?.getBirthDate();
+    if (mounted && bd != null) setState(() => _birthDate = bd);
+  }
 
-
+  Future<void> _shareHandoff(BuildContext ctx) async {
+    HapticFeedback.mediumImpact();
+    final messenger = ScaffoldMessenger.of(ctx);
+    final msg = HandoffNoteService.buildMessage(
+      stats: _stats,
+      birthDate: _birthDate,
+      recentEvents: _events,
+      pendingReminders: _pendingReminders,
+    );
+    if (kIsWeb) {
+      await Clipboard.setData(ClipboardData(text: msg));
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Handoff note copied to clipboard!'),
+        duration: Duration(seconds: 3),
+      ));
+    } else {
+      final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(msg)}');
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication)
+          .catchError((_) => false);
+      if (!launched) {
+        await Clipboard.setData(ClipboardData(text: msg));
+        if (!mounted) return;
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Copied to clipboard (WhatsApp not found)'),
+          duration: Duration(seconds: 3),
+        ));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -310,48 +455,147 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(padding: EdgeInsets.zero, children: [
 
         // ── 1. Partner activity strip — very top ─────────────────
-        if (_partnerLastEvent != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: Colors.grey.shade800.withOpacity(0.5),
+        Builder(builder: (_) {
+          final visible = _partnerRecentEvents
+              .where((e) => !_dismissedStripEventIds.contains(e.id))
+              .toList();
+          if (visible.isEmpty) return const SizedBox.shrink();
+
+          final selfEvents = visible.where((e) => e.createdBy == _myDeviceId).toList()
+            ..sort((a, b) => b.startTime.compareTo(a.startTime));
+          final partnerMap = <String, List<BabyEvent>>{};
+          for (final e in visible) {
+            if (e.createdBy != _myDeviceId) (partnerMap[e.createdBy!] ??= []).add(e);
+          }
+
+          // Build one Dismissible row per event (self) or per caregiver (partner)
+          final rows = <Widget>[
+            ...selfEvents.map((e) => Dismissible(
+              key: Key('strip_${e.id}'),
+              direction: DismissDirection.horizontal,
+              background: _DismissBg(align: Alignment.centerLeft),
+              secondaryBackground: _DismissBg(align: Alignment.centerRight),
+              onDismissed: (_) {
+                HapticFeedback.lightImpact();
+                setState(() => _dismissedStripEventIds.add(e.id));
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: Colors.grey.shade800.withOpacity(0.5),
+                ),
+                child: Row(children: [
+                  const Text('📋', style: TextStyle(fontSize: 14)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'You logged ${_stripLabel(e)} · ${_timeAgo(e.startTime)}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                  )),
+                  GestureDetector(
+                    onTap: () async {
+                      HapticFeedback.lightImpact();
+                      await widget.service.deleteEvent(e.id);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        color: Colors.red.withOpacity(0.12),
+                      ),
+                      child: Text('Undo', style: TextStyle(fontSize: 11, color: Colors.red.shade400, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ]),
               ),
-              child: Row(children: [
-                const Text('🤝', style: TextStyle(fontSize: 14)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(
-                  (_deviceNames[_partnerLastEvent!.createdBy] ?? 'Partner') +
-                      ' logged ' + _partnerLastEvent!.displayName +
-                      ' ' + _timeAgo(_partnerLastEvent!.startTime),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                )),
-              ]),
-            ),
-          ),
+            )),
+            ...partnerMap.entries.map((entry) {
+              final evts = [...entry.value]..sort((a, b) => b.startTime.compareTo(a.startTime));
+              final name = evts.first.createdByName ?? _deviceNames[entry.key] ?? 'Partner';
+              final evtText = evts.map((e) => _stripLabel(e)).join(' · ');
+              // Dismiss all events from this partner at once
+              return Dismissible(
+                key: Key('strip_${entry.key}_${evts.first.id}'),
+                direction: DismissDirection.horizontal,
+                background: _DismissBg(align: Alignment.centerLeft),
+                secondaryBackground: _DismissBg(align: Alignment.centerRight),
+                onDismissed: (_) {
+                  HapticFeedback.lightImpact();
+                  setState(() => _dismissedStripEventIds.addAll(evts.map((e) => e.id)));
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Colors.grey.shade800.withOpacity(0.5),
+                  ),
+                  child: Row(children: [
+                    const Text('📋', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(
+                      '$name logged $evtText · ${_timeAgo(evts.first.startTime)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                    )),
+                  ]),
+                ),
+              );
+            }),
+          ];
+
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(children: rows),
+          );
+        }),
 
         // ── 2. Contextual suggestion strip ───────────────────────
         Builder(builder: (context) {
-          final suggestions = _getSuggestions(_stats);
+          String suggKey(String s) {
+            if (s.startsWith('⏰')) return 'feed_timing';
+            if (s.startsWith('🧷')) return 'diaper_timing';
+            final m = RegExp(r'#(\S+)').firstMatch(s);
+            final id = m?.group(1) ?? 'unk';
+            if (s.startsWith('⚠️')) return 'room_$id';
+            if (s.contains('Fridge')) return 'fridge_$id';
+            return 'freezer_$id';
+          }
+          final suggestions = _getSuggestions(_stats)
+              .where((s) => !_dismissedSuggestions.contains(suggKey(s)))
+              .toList();
           if (suggestions.isEmpty) return const SizedBox.shrink();
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: Column(children: suggestions.map((s) => Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
-                border: Border.all(
-                    color: s.startsWith('⚠️')
-                        ? Colors.orange.withOpacity(0.3)
-                        : kFeedColor.withOpacity(0.2)),
-              ),
-              child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-            )).toList()),
+            child: Column(children: suggestions.map((s) {
+              final key = suggKey(s);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Dismissible(
+                  key: Key('sugg_$key'),
+                  direction: DismissDirection.horizontal,
+                  background: _DismissBg(align: Alignment.centerLeft),
+                  secondaryBackground: _DismissBg(align: Alignment.centerRight),
+                  onDismissed: (_) {
+                    HapticFeedback.lightImpact();
+                    setState(() => _dismissedSuggestions.add(key));
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: s.startsWith('⚠️') ? Colors.orange.withOpacity(0.08) : kFeedColor.withOpacity(0.08),
+                      border: Border.all(
+                          color: s.startsWith('⚠️')
+                              ? Colors.orange.withOpacity(0.3)
+                              : kFeedColor.withOpacity(0.2)),
+                    ),
+                    child: Text(s, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                  ),
+                ),
+              );
+            }).toList()),
           );
         }),
 
@@ -378,48 +622,38 @@ class _HomeScreenState extends State<HomeScreen> {
                   (slotDate != null ? slotDate.day.toString() + '_' + slotDate.month.toString() : '');
               final borderCol = isOverdue ? Colors.orange : Colors.purple;
               final bgCol = isOverdue
-                  ? Colors.orange.withOpacity(0.1)
-                  : Colors.purple.withOpacity(0.1);
+                  ? Colors.orange.withOpacity(0.08)
+                  : Colors.purple.withOpacity(0.08);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: bgCol,
-                    border: Border.all(color: borderCol.withOpacity(0.6), width: 1.5),
-                  ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      // Pill emoji — always, no warning icon
-                      Text('💊', style: const TextStyle(fontSize: 15)),
+                child: Dismissible(
+                  key: Key('med_$dismissKey'),
+                  direction: DismissDirection.horizontal,
+                  background: _DismissBg(align: Alignment.centerLeft),
+                  secondaryBackground: _DismissBg(align: Alignment.centerRight),
+                  onDismissed: (_) {
+                    HapticFeedback.lightImpact();
+                    setState(() => _dismissedReminders.add(dismissKey));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: bgCol,
+                      border: Border.all(color: borderCol.withOpacity(0.4)),
+                    ),
+                    child: Row(children: [
+                      const Text('💊', style: TextStyle(fontSize: 13)),
                       const SizedBox(width: 8),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(med.displayName,
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: borderCol)),
-                        Text(dayLabel + (isOverdue ? ' · overdue' : ''),
-                            style: TextStyle(fontSize: 11, color: borderCol.withOpacity(0.7))),
-                      ])),
-                      // Dismiss — far left, subtle
+                      Expanded(child: Text(
+                        '${med.displayName} · $dayLabel${isOverdue ? ' · overdue' : ''}',
+                        style: TextStyle(fontSize: 12, color: borderCol.withOpacity(0.85)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )),
+                      const SizedBox(width: 8),
                       GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          setState(() => _dismissedReminders.add(dismissKey));
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 4, 0, 4),
-                          child: Text('dismiss',
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600,
-                                  fontStyle: FontStyle.italic)),
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 8),
-                    // Given button — full width, clearly separated from dismiss
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () async {
+                        onTap: () async {
                           HapticFeedback.mediumImpact();
                           _showConfetti(context);
                           await widget.medicineService!.markGiven(
@@ -429,17 +663,17 @@ class _HomeScreenState extends State<HomeScreen> {
                               .getPendingReminders(_medicines);
                           if (mounted) setState(() => _pendingReminders = reminders);
                         },
-                        style: TextButton.styleFrom(
-                          backgroundColor: borderCol.withOpacity(0.15),
-                          foregroundColor: borderCol,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            color: borderCol.withOpacity(0.15),
+                          ),
+                          child: Icon(Icons.check, size: 14, color: borderCol),
                         ),
-                        child: Text('✓ Given — ' + med.displayName,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                       ),
-                    ),
-                  ]),
+                    ]),
+                  ),
                 ),
               );
             }).toList()),
@@ -469,14 +703,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.grey.shade500,
                           letterSpacing: 0.5)),
                   const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: 2.4,
-                    children: [
+                  Builder(builder: (_) {
+                    final btns = <Widget>[
                       if (cfg.trackFeed)
                         _LogBtn(
                             emoji: ongoing?.type == EventType.feed ? '⏰' : '🍼',
@@ -503,8 +731,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             label: 'Pump',
                             color: kPumpColor,
                             onTap: () => _openLog(EventType.pump)),
-                    ],
-                  ),
+                    ];
+                    return SizedBox(
+                      height: 56,
+                      child: Row(children: [
+                        for (int i = 0; i < btns.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 10),
+                          Expanded(child: btns[i]),
+                        ],
+                      ]),
+                    );
+                  }),
                 ])),
 
         SafeArea(
@@ -604,6 +841,62 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                       ],
                     ]))),
+
+        // ── Share handoff note button
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: GestureDetector(
+            onTap: () => _shareHandoff(context),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade800),
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.ios_share, size: 16, color: Colors.grey.shade500),
+                const SizedBox(width: 8),
+                Text(
+                  kIsWeb ? 'Copy handoff note' : 'Share handoff note',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500,
+                      fontWeight: FontWeight.w500),
+                ),
+              ]),
+            ),
+          ),
+        ),
+
+        // ── View History button
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => HistoryScreen(
+                  service: widget.service,
+                  medicineService: widget.medicineService,
+                ),
+              ));
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade800),
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.history, size: 16, color: Colors.grey.shade500),
+                const SizedBox(width: 8),
+                Text('View History',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500)),
+              ]),
+            ),
+          ),
+        ),
       ]),
     );
   }
@@ -624,6 +917,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _streamSub?.cancel();
     _medicinesSub?.cancel();
+    _deviceNamesSub?.cancel();
     _tickTimer?.cancel();
     super.dispose();
   }
@@ -658,18 +952,18 @@ class _FeedStatCard extends StatelessWidget {
     final endT = f.endTime ?? f.startTime;
     final ago = _fmt(DateTime.now().difference(endT));
     final parts = <String>['(${_hhmm(f.startTime)}) $ago ago'];
-    if (f.durationMinutes != null)
-      parts.add(f.durationText);
-    else if (f.mlFed != null)
-      parts.add('${f.mlFed}ml');
-    else if (f.source == 'pump' && f.linkedPumps != null) {
-      try {
-        final list =
-            List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
-        final ml =
-            list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
-        if (ml > 0) parts.add('${ml}ml');
-      } catch (_) {}
+    if (f.source == 'pump') {
+      // Pump feeds: always show ml, never duration (duration is always 0)
+      int ml = f.mlFed ?? 0;
+      if (ml == 0 && f.linkedPumps != null) {
+        try {
+          final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!));
+          ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt());
+        } catch (_) {}
+      }
+      if (ml > 0) parts.add('${ml}ml');
+    } else {
+      if (f.durationMinutes != null) parts.add(f.durationText);
     }
     if (f.side != null) parts.add(f.side!);
     if (f.isOngoing && f.source != 'pump') parts.add('ongoing');
@@ -813,37 +1107,6 @@ class _MiniStat extends StatelessWidget {
                   ),
                 ),
             ])),
-
-        // ── View History button
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => HistoryScreen(
-                  service: widget.service,
-                  medicineService: widget.medicineService,
-                ),
-              ));
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade800),
-              ),
-              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.history, size: 16, color: Colors.grey.shade500),
-                const SizedBox(width: 8),
-                Text('View History',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500)),
-              ]),
-            ),
-          ),
-        ),
       ]),
     ));
   }
@@ -896,10 +1159,14 @@ class _PumpStockCard extends StatelessWidget {
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }
                   final storageMap = <String, int>{};
+                  final portionMap = <String, int>{};
                   for (final u in sorted) {
                     final storage = (u['storage'] as String?) ?? 'room';
                     final rem = u['remaining'] as int;
-                    if (rem > 0) storageMap[storage] = (storageMap[storage] ?? 0) + rem;
+                    if (rem > 0) {
+                      storageMap[storage] = (storageMap[storage] ?? 0) + rem;
+                      portionMap[storage] = (portionMap[storage] ?? 0) + 1;
+                    }
                   }
                   if (storageMap.isEmpty) {
                     return Text('Stock: empty',
@@ -911,9 +1178,14 @@ class _PumpStockCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: order
                         .where((s) => storageMap.containsKey(s))
-                        .map((s) => Text(
-                              (storageEmoji[s] ?? '🏠') + ' ' + storageMap[s]!.toString() + 'ml',
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade400)))
+                        .map((s) {
+                          final ml = storageMap[s]!;
+                          final portions = portionMap[s] ?? 0;
+                          final feeds = (ml / 90).round();
+                          return Text(
+                            '${storageEmoji[s] ?? '🏠'} ${ml}ml ($portions portion${portions == 1 ? '' : 's'}, ~$feeds feed${feeds == 1 ? '' : 's'})',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
+                        })
                         .toList(),
                   );
                 }),
@@ -1047,13 +1319,16 @@ class _LogBtn extends StatelessWidget {
               boxShadow: active
                   ? [BoxShadow(color: color.withOpacity(0.2), blurRadius: 8)]
                   : null),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(emoji, style: const TextStyle(fontSize: 28)),
-            const SizedBox(width: 10),
-            Text(label,
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 15, color: color)),
-          ]),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(emoji, style: const TextStyle(fontSize: 26)),
+              const SizedBox(width: 8),
+              Text(label,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 14, color: color)),
+            ]),
+          ),
         ));
   }
 }
@@ -1074,73 +1349,91 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
   late Animation<double> _slide;
   final List<_Particle> _particles = [];
 
-  @override
-  void initState() {
-    super.initState();
-    // Generate particles
-    final rng = DateTime.now().millisecondsSinceEpoch;
-    for (int i = 0; i < 28; i++) {
-      _particles.add(_Particle(
-        x: ((rng * (i + 7) * 31337) % 100) / 100.0,
-        color: _confettiColors[(rng + i * 13) % _confettiColors.length],
-        size: 5 + ((rng + i * 7) % 6).toDouble(),
-        speed: 0.4 + ((rng + i * 3) % 6) / 10.0,
-        angle: ((rng + i * 17) % 60) - 30.0,
-      ));
-    }
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
-    _fade = CurvedAnimation(parent: _ctrl, curve: const Interval(0.65, 1.0));
-    _slide = CurvedAnimation(parent: _ctrl, curve: const Interval(0.0, 0.3, curve: Curves.easeOut));
-    _ctrl.forward().then((_) => widget.onDone());
-  }
-
   static const _confettiColors = [
     Color(0xFFf97316), Color(0xFF22c55e), Color(0xFF6366f1),
     Color(0xFFec4899), Color(0xFFf59e0b), Color(0xFF2dd4bf),
+    Color(0xFFe879f9), Color(0xFF34d399), Color(0xFF60a5fa),
+    Color(0xFFfb7185), Color(0xFFa3e635), Color(0xFFfbbf24),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    final rng = math.Random();
+    for (int i = 0; i < 75; i++) {
+      _particles.add(_Particle(
+        x: rng.nextDouble(),
+        startY: -60.0 + rng.nextDouble() * 80, // start above or just inside top
+        speed: 0.55 + rng.nextDouble() * 0.55,
+        drift: (rng.nextDouble() - 0.5) * 120, // horizontal drift over full animation
+        wobble: 2.0 + rng.nextDouble() * 4.0,  // sine wave frequency
+        wobbleAmp: 8.0 + rng.nextDouble() * 18.0, // sine wave amplitude px
+        spin: (rng.nextDouble() - 0.5) * 12,   // rotation speed
+        color: _confettiColors[rng.nextInt(_confettiColors.length)],
+        size: 5.0 + rng.nextDouble() * 7.0,
+        shape: rng.nextInt(3), // 0=rect, 1=strip, 2=circle
+      ));
+    }
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400));
+    _fade  = CurvedAnimation(parent: _ctrl, curve: const Interval(0.7, 1.0));
+    _slide = CurvedAnimation(parent: _ctrl, curve: const Interval(0.0, 0.25, curve: Curves.easeOut));
+    _ctrl.forward().then((_) => widget.onDone());
+  }
 
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
+    final screenW = MediaQuery.of(context).size.width;
+    final screenH = MediaQuery.of(context).size.height;
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) {
-        final progress = _ctrl.value;
+        final t = _ctrl.value;
         return FadeTransition(
           opacity: Tween<double>(begin: 1, end: 0).animate(_fade),
           child: Stack(children: [
-            // Affirmation message — slides up from center
+            // Affirmation pill — slides up from bottom third
             Positioned(
-              bottom: 120 + _slide.value * 30,
-              left: 0, right: 0,
+              bottom: 130 + _slide.value * 40,
+              left: 24, right: 24,
               child: Center(child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.75),
-                  borderRadius: BorderRadius.circular(24),
+                  color: Colors.black.withOpacity(0.80),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 4))],
                 ),
                 child: Text(widget.message,
-                    style: const TextStyle(color: Colors.white,
-                        fontSize: 15, fontWeight: FontWeight.w600)),
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.nunito(
+                        color: Colors.white,
+                        fontSize: 16, fontWeight: FontWeight.w700,
+                        height: 1.3, decoration: TextDecoration.none)),
               )),
             ),
             // Confetti particles
             ..._particles.map((p) {
-              final y = progress * p.speed * MediaQuery.of(context).size.height * 0.6;
-              final x = p.x * MediaQuery.of(context).size.width +
-                  (progress * p.angle * 2);
+              final fallY = t * p.speed * screenH * 1.1;
+              final wobbleX = math.sin(t * p.wobble * math.pi) * p.wobbleAmp;
+              final cx = p.x * screenW + t * p.drift + wobbleX;
+              final cy = p.startY + fallY;
+              final rot = t * p.spin;
+              // Determine dimensions by shape
+              final w = p.shape == 1 ? p.size * 0.35 : p.size;
+              final h = p.shape == 1 ? p.size * 2.2  : p.size * 0.55;
+              final radius = p.shape == 2 ? p.size / 2 : 2.0;
               return Positioned(
-                left: x,
-                top: 100 + y,
+                left: cx,
+                top: cy,
                 child: Transform.rotate(
-                  angle: progress * p.angle * 0.1,
+                  angle: rot,
                   child: Container(
-                    width: p.size, height: p.size * 0.6,
+                    width: w, height: h,
                     decoration: BoxDecoration(
                       color: p.color,
-                      borderRadius: BorderRadius.circular(1),
+                      borderRadius: BorderRadius.circular(radius),
                     ),
                   ),
                 ),
@@ -1154,8 +1447,29 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
 }
 
 class _Particle {
-  final double x, speed, angle, size;
+  final double x, startY, speed, drift, wobble, wobbleAmp, spin, size;
   final Color color;
-  const _Particle({required this.x, required this.speed, required this.angle,
-      required this.size, required this.color});
+  final int shape; // 0=rect, 1=strip, 2=circle
+  const _Particle({
+    required this.x, required this.startY, required this.speed,
+    required this.drift, required this.wobble, required this.wobbleAmp,
+    required this.spin, required this.size, required this.color,
+    required this.shape,
+  });
+}
+
+// Shared swipe-to-dismiss background (red tint + X icon)
+class _DismissBg extends StatelessWidget {
+  final AlignmentGeometry align;
+  const _DismissBg({required this.align});
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(10),
+      color: Colors.red.withOpacity(0.12),
+    ),
+    alignment: align,
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Icon(Icons.close, size: 16, color: Colors.red.shade400),
+  );
 }

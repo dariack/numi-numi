@@ -7,6 +7,7 @@ import '../models/reminder_settings.dart';
 // Notification IDs — fixed so we can cancel/replace them
 const int kFeedNotificationId = 1001;
 const int kDiaperNotificationId = 1002;
+const int kPartnerActivityId = 1003;
 
 class NotificationService {
   NotificationService._();
@@ -169,6 +170,29 @@ class NotificationService {
   }
 
   /// Returns a human-readable description of scheduled reminders (for debug/settings display)
+  /// Fires an immediate notification when a partner logs an event.
+  /// Uses show() (not scheduled) so it appears right away.
+  Future<void> showPartnerActivity({
+    required String caregiverName,
+    required String eventName,
+  }) async {
+    await _plugin.show(
+      kPartnerActivityId,
+      '🤝 $caregiverName logged $eventName',
+      'Tap to open the app',
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channel.id,
+          _channel.name,
+          channelDescription: _channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+      ),
+    );
+  }
+
   Future<List<PendingNotificationRequest>> getPending() async {
     return _plugin.pendingNotificationRequests();
   }

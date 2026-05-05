@@ -8,8 +8,11 @@ class LogEventSheet extends StatefulWidget {
   final EventType type;
   final FirestoreService service;
   final BabyEvent? ongoing;
+  final String deviceId;
+  final String caregiverName;
 
-  const LogEventSheet({super.key, required this.type, required this.service, this.ongoing});
+  const LogEventSheet({super.key, required this.type, required this.service, this.ongoing,
+      this.deviceId = 'app', this.caregiverName = ''});
 
   @override
   State<LogEventSheet> createState() => _LogEventSheetState();
@@ -55,14 +58,14 @@ class _LogEventSheetState extends State<LogEventSheet> {
   bool get _isSleep => widget.type == EventType.sleep;
   bool get _isDiaper => widget.type == EventType.diaper;
 
-  String _deviceId = 'app';
+  late String _deviceId;
+  late String _caregiverName;
 
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((p) {
-      setState(() => _deviceId = p.getString('device_id') ?? 'app');
-    });
+    _deviceId = widget.deviceId;
+    _caregiverName = widget.caregiverName;
     if (widget.ongoing != null) {
       _when = widget.ongoing!.startTime;
       // Pre-fill duration from elapsed time
@@ -98,14 +101,15 @@ class _LogEventSheetState extends State<LogEventSheet> {
         final nextId = await widget.service.getNextPumpId();
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.pump, startTime: _when, side: _side,
-          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: nextId, createdBy: _deviceId,
+          ml: _pumpMl, storage: _pumpStorage, expiresAt: exp, pumpId: nextId,
+          createdBy: _deviceId, createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
         ));
       } else if (_isFeed) {
         // If pump source with ad-hoc ml, create a pump event first
         if (_feedSource == 'pump' && _adHocMl != null && _adHocMl! > 0) {
           final adHocPump = await widget.service.addEvent(BabyEvent(
             id: '', type: EventType.pump, startTime: _when,
-            ml: _adHocMl, createdBy: _deviceId + '-adhoc',
+            ml: _adHocMl, createdBy: _deviceId + '-adhoc', createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
           ));
           _selectedPumps[adHocPump.id] = _adHocMl!;
         }
@@ -120,8 +124,8 @@ class _LogEventSheetState extends State<LogEventSheet> {
           created = await widget.service.addEvent(BabyEvent(
             id: '', type: EventType.feed, startTime: _when,
             endTime: _when, durationMinutes: 0,
-            createdBy: _deviceId, source: 'pump',
-            linkedPumps: linkedPumpsStr,
+            createdBy: _deviceId, createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
+            source: 'pump', linkedPumps: linkedPumpsStr,
             mlFed: totalMl > 0 ? totalMl : null,
           ));
         } else {
@@ -132,13 +136,15 @@ class _LogEventSheetState extends State<LogEventSheet> {
             id: '', type: EventType.feed, startTime: _when,
             endTime: endTime,
             durationMinutes: _isOngoing ? null : _durationMin,
-            side: _side, createdBy: _deviceId, source: 'breast',
+            side: _side, createdBy: _deviceId, createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
+            source: 'breast',
           ));
         }
       } else if (_isDiaper) {
         created = await widget.service.addEvent(BabyEvent(
           id: '', type: EventType.diaper, startTime: _when,
           pee: _pee, poop: _poop, createdBy: _deviceId,
+          createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
         ));
       } else if (_isSleep) {
         DateTime? endTime;
@@ -147,6 +153,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
           id: '', type: EventType.sleep, startTime: _when,
           endTime: endTime,
           durationMinutes: _isOngoing ? null : _durationMin, createdBy: _deviceId,
+          createdByName: _caregiverName.isNotEmpty ? _caregiverName : null,
         ));
       }
 
@@ -210,12 +217,12 @@ class _LogEventSheetState extends State<LogEventSheet> {
   Widget _buildFeedWizard() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       // 1. Source — first thing
-      _label('Feeding from?'),
+      _label('FEEDING FROM?'),
       const SizedBox(height: 8),
       Row(children: [
         Expanded(child: _ToggleBtn(emoji: '🤱', label: 'Breast', selected: _feedSource == 'breast',
           onTap: () => setState(() { _feedSource = 'breast'; _selectedPumps.clear(); _mlFed = null; _adHocMl = null; }))),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(child: _ToggleBtn(emoji: '🥛', label: 'Pumped Milk', selected: _feedSource == 'pump',
           onTap: () => setState(() { _feedSource = 'pump'; _side = null; }))),
       ]),
@@ -223,19 +230,18 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 16),
 
       // 2. When
-      _label('When?'),
+      _label('WHEN?'),
       const SizedBox(height: 8),
       _whenChips(),
-      const SizedBox(height: 6),
       if (_isNow && _feedSource != 'pump') ...[
         const SizedBox(height: 6),
-        Text('Will be logged as ongoing', style: TextStyle(fontSize: 12, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
+        Text('Will be logged as ongoing', style: TextStyle(fontSize: 11, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
       ],
 
       // 3. Source-specific fields
       if (_feedSource == 'breast') ...[
         const SizedBox(height: 16),
-        _label('Side (optional)'),
+        _label('SIDE (OPTIONAL)'),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: _SmallToggle(label: '🤱 Left', selected: _side == 'left',
@@ -247,7 +253,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
         if (!_isNow) ...[
           const SizedBox(height: 16),
-          _label('Duration'),
+          _label('DURATION'),
           const SizedBox(height: 8),
           _durationChips(isSleep: false),
         ],
@@ -255,7 +261,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
       if (_feedSource == 'pump') ...[
         const SizedBox(height: 16),
-        _label('Select pump portions'),
+        _label('SELECT PUMP PORTIONS'),
         const SizedBox(height: 8),
         if (!_stockLoaded)
           const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
@@ -348,20 +354,18 @@ class _LogEventSheetState extends State<LogEventSheet> {
   // ================================================================
   Widget _buildPumpWizard() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('When was this pumped?'),
+      _label('WHEN?'),
       const SizedBox(height: 8),
       _whenChips(),
-      const SizedBox(height: 6),
-
       const SizedBox(height: 16),
-      _label('Milliliters (optional)'),
+      _label('MILLILITERS (OPTIONAL)'),
       const SizedBox(height: 8),
       TextField(keyboardType: TextInputType.number,
-        decoration: InputDecoration(hintText: 'e.g. 120', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), isDense: true),
+        decoration: InputDecoration(hintText: 'e.g. 120',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), isDense: true),
         onChanged: (v) => _pumpMl = int.tryParse(v)),
-
       const SizedBox(height: 16),
-      _label('Side (optional)'),
+      _label('SIDE (OPTIONAL)'),
       const SizedBox(height: 8),
       Row(children: [
         Expanded(child: _SmallToggle(label: 'Left', selected: _side == 'left', onTap: () => setState(() => _side = _side == 'left' ? null : 'left'))),
@@ -370,9 +374,8 @@ class _LogEventSheetState extends State<LogEventSheet> {
         const SizedBox(width: 8),
         Expanded(child: _SmallToggle(label: 'Both', selected: _side == 'both', onTap: () => setState(() => _side = _side == 'both' ? null : 'both'))),
       ]),
-
       const SizedBox(height: 16),
-      _label('Stored at (optional)'),
+      _label('STORED AT (OPTIONAL)'),
       const SizedBox(height: 8),
       Row(children: [
         Expanded(child: _SmallToggle(label: '🏠 Room', selected: _pumpStorage == 'room', onTap: () => setState(() => _pumpStorage = _pumpStorage == 'room' ? null : 'room'))),
@@ -381,7 +384,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
         const SizedBox(width: 8),
         Expanded(child: _SmallToggle(label: '🧊 Freezer', selected: _pumpStorage == 'freezer', onTap: () => setState(() => _pumpStorage = _pumpStorage == 'freezer' ? null : 'freezer'))),
       ]),
-
       const SizedBox(height: 20),
       _SaveButton(saving: _saving, onTap: () => _save()),
     ]);
@@ -393,13 +395,12 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
   Widget _buildWhenStep({required VoidCallback onNext}) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('When did this happen?'),
+      _label('WHEN?'),
       const SizedBox(height: 8),
       _whenChips(),
-      const SizedBox(height: 6),
       if (_isNow && _isSleep) ...[
         const SizedBox(height: 6),
-        Text('Will be logged as ongoing', style: TextStyle(fontSize: 12, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
+        Text('Will be logged as ongoing', style: TextStyle(fontSize: 11, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
       ],
       const SizedBox(height: 16),
       _SaveButton(label: _isNow && _isSleep ? 'Save' : 'Next', saving: _saving, onTap: onNext),
@@ -408,7 +409,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
   Widget _buildDurationStep({required VoidCallback onNext}) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('How long?'),
+      _label('HOW LONG?'),
       const SizedBox(height: 4),
       Text('Started at ${_fmtTime(_when)}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
       const SizedBox(height: 12),
@@ -483,59 +484,25 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
   Widget _buildDiaperWizard() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // When
-      _label('When?'),
+      _label('WHEN?'),
       const SizedBox(height: 8),
       _whenChips(),
-      const SizedBox(height: 6),
-
       const SizedBox(height: 16),
-      // What
-      _label('What was in the diaper?'),
-      const SizedBox(height: 12),
-      Row(children: [
-        Expanded(child: _ToggleBtn(emoji: '💧', label: 'Pee', selected: _pee, onTap: () => setState(() => _pee = !_pee))),
-        const SizedBox(width: 10),
-        Expanded(child: _ToggleBtn(emoji: '💩', label: 'Poop', selected: _poop, onTap: () => setState(() => _poop = !_poop))),
-      ]),
+      _label('WHAT WAS IN THE DIAPER?'),
       const SizedBox(height: 8),
-      GestureDetector(
-        onTap: () => setState(() { _pee = true; _poop = true; }),
-        child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: (_pee && _poop) ? Colors.purple : Colors.grey.withOpacity(0.3)),
-            color: (_pee && _poop) ? Colors.purple.withOpacity(0.1) : null),
-          child: Center(child: Text('🧷 Both', style: TextStyle(fontWeight: FontWeight.bold, color: (_pee && _poop) ? Colors.purple : Colors.grey.shade500)))),
-      ),
+      Row(children: [
+        Expanded(child: _ToggleBtn(emoji: '💧', label: 'Pee', selected: _pee && !_poop,
+            onTap: () => setState(() { _pee = !_pee; if (_pee) _poop = false; }))),
+        const SizedBox(width: 8),
+        Expanded(child: _ToggleBtn(emoji: '💩', label: 'Poop', selected: _poop && !_pee,
+            onTap: () => setState(() { _poop = !_poop; if (_poop) _pee = false; }))),
+        const SizedBox(width: 8),
+        Expanded(child: _ToggleBtn(emoji: '🧷', label: 'Both', selected: _pee && _poop,
+            onTap: () => setState(() { _pee = true; _poop = true; }))),
+      ]),
       const SizedBox(height: 20),
       _SaveButton(label: 'Save', saving: _saving, onTap: () {
-        if (!_pee && !_poop) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select at least pee or poop'))); return; }
-        _save();
-      }),
-    ]);
-  }
-
-  Widget _buildDiaperStep() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('What was in the diaper?'),
-      const SizedBox(height: 12),
-      Row(children: [
-        Expanded(child: _ToggleBtn(emoji: '💧', label: 'Pee', selected: _pee, onTap: () => setState(() => _pee = !_pee))),
-        const SizedBox(width: 10),
-        Expanded(child: _ToggleBtn(emoji: '💩', label: 'Poop', selected: _poop, onTap: () => setState(() => _poop = !_poop))),
-      ]),
-      const SizedBox(height: 8),
-      GestureDetector(
-        onTap: () => setState(() { _pee = true; _poop = true; }),
-        child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: (_pee && _poop) ? Colors.purple : Colors.grey.withOpacity(0.3)),
-            color: (_pee && _poop) ? Colors.purple.withOpacity(0.1) : null),
-          child: Center(child: Text('🧷 Both', style: TextStyle(fontWeight: FontWeight.bold, color: (_pee && _poop) ? Colors.purple : Colors.grey.shade500)))),
-      ),
-      const SizedBox(height: 16),
-      _SaveButton(label: 'Save', saving: _saving, onTap: () {
-        if (!_pee && !_poop) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select at least pee or poop'))); return; }
+        if (!_pee && !_poop) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select pee, poop, or both'))); return; }
         _save();
       }),
     ]);
@@ -543,12 +510,14 @@ class _LogEventSheetState extends State<LogEventSheet> {
 
   Widget _buildSidePicker({required String label, required VoidCallback onSave}) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('$label (optional)'),
-      const SizedBox(height: 12),
+      _label('${label.toUpperCase()} (OPTIONAL)'),
+      const SizedBox(height: 8),
       Row(children: [
-        Expanded(child: _ToggleBtn(emoji: '🤱', label: 'Left', selected: _side == 'left', onTap: () => setState(() => _side = _side == 'left' ? null : 'left'))),
-        const SizedBox(width: 10),
-        Expanded(child: _ToggleBtn(emoji: '🤱', label: 'Right', selected: _side == 'right', onTap: () => setState(() => _side = _side == 'right' ? null : 'right'))),
+        Expanded(child: _ToggleBtn(emoji: '🤱', label: 'Left', selected: _side == 'left',
+            onTap: () => setState(() => _side = _side == 'left' ? null : 'left'))),
+        const SizedBox(width: 8),
+        Expanded(child: _ToggleBtn(emoji: '🤱', label: 'Right', selected: _side == 'right',
+            onTap: () => setState(() => _side = _side == 'right' ? null : 'right'))),
       ]),
       const SizedBox(height: 16),
       _SaveButton(label: 'Save', saving: _saving, onTap: onSave),
@@ -559,7 +528,9 @@ class _LogEventSheetState extends State<LogEventSheet> {
   // SHARED WIDGETS
   // ================================================================
 
-  Widget _label(String text) => Text(text, style: TextStyle(fontSize: 15, color: Colors.grey.shade400));
+  Widget _label(String text) => Text(text,
+      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+          color: Colors.grey.shade500, letterSpacing: 0.5));
 
   Widget _whenChips() {
     final now = DateTime.now();
@@ -662,16 +633,23 @@ class _ToggleBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme.primary;
-    return GestureDetector(onTap: onTap, child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
-        color: selected ? c.withOpacity(0.12) : null,
-        border: Border.all(color: selected ? c : Colors.grey.withOpacity(0.3), width: selected ? 2 : 1)),
-      child: Column(children: [
-        Text(emoji, style: const TextStyle(fontSize: 28)), const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontWeight: FontWeight.bold, color: selected ? c : Colors.grey.shade400)),
-      ]),
-    ));
+    return GestureDetector(
+      onTap: () { HapticFeedback.selectionClick(); onTap(); },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: selected ? c.withOpacity(0.12) : null,
+          border: Border.all(color: selected ? c : Colors.grey.withOpacity(0.25), width: selected ? 2 : 1),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(emoji, style: const TextStyle(fontSize: 17)),
+          const SizedBox(width: 6),
+          Flexible(child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: selected ? c : Colors.grey.shade400), overflow: TextOverflow.ellipsis)),
+        ]),
+      ),
+    );
   }
 }
 
@@ -696,7 +674,7 @@ class _SaveButton extends StatelessWidget {
   const _SaveButton({required this.onTap, this.label = 'Save', this.saving = false});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(width: double.infinity, height: 50, child: FilledButton(
+    return SizedBox(width: double.infinity, height: 46, child: FilledButton(
       onPressed: saving ? null : onTap,
       child: saving ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
         : Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),

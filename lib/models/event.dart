@@ -12,6 +12,7 @@ class BabyEvent {
   final bool pee;
   final bool poop;
   final String? createdBy;
+  final String? createdByName;
   final DateTime createdAt;
 
   // Pump fields
@@ -37,6 +38,7 @@ class BabyEvent {
     this.pee = false,
     this.poop = false,
     this.createdBy,
+    this.createdByName,
     DateTime? createdAt,
     this.ml,
     this.storage,
@@ -153,6 +155,7 @@ class BabyEvent {
       pee: d['pee'] ?? false,
       poop: d['poop'] ?? false,
       createdBy: d['createdBy'] as String?,
+      createdByName: d['createdByName'] as String?,
       createdAt: d['createdAt'] != null
           ? (d['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
@@ -180,6 +183,7 @@ class BabyEvent {
       'pee': pee,
       'poop': poop,
       if (createdBy != null) 'createdBy': createdBy,
+      if (createdByName != null) 'createdByName': createdByName,
       'createdAt': Timestamp.fromDate(createdAt),
       if (ml != null) 'ml': ml,
       if (storage != null) 'storage': storage,
@@ -223,6 +227,7 @@ class BabyEvent {
       pee: pee ?? this.pee,
       poop: poop ?? this.poop,
       createdBy: createdBy,
+      createdByName: createdByName,
       createdAt: createdAt,
       ml: ml ?? this.ml,
       storage: storage ?? this.storage,
