@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/event.dart';
 import '../models/medicine.dart';
@@ -384,7 +385,7 @@ class _Chip extends StatelessWidget {
   const _Chip({required this.label, required this.selected, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(onTap: onTap, child: Container(
+    return GestureDetector(onTap: () { HapticFeedback.lightImpact(); onTap(); }, child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(20),
         color: selected ? Theme.of(context).colorScheme.primary.withOpacity(0.15) : null,
@@ -418,9 +419,11 @@ class _EventTile extends StatelessWidget {
       title: Text(event.displayName, style: const TextStyle(fontSize: 14)),
       subtitle: props.isNotEmpty ? Text(props.join(' · '), style: TextStyle(fontSize: 12, color: Colors.grey.shade500)) : null,
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit,
+        IconButton(icon: const Icon(Icons.edit_outlined, size: 20),
+          onPressed: () { HapticFeedback.lightImpact(); onEdit(); },
           color: Colors.grey.shade500),
-        IconButton(icon: const Icon(Icons.delete_outline, size: 20), onPressed: onDelete,
+        IconButton(icon: const Icon(Icons.delete_outline, size: 20),
+          onPressed: () { HapticFeedback.mediumImpact(); onDelete(); },
           color: Colors.red.withOpacity(0.6)),
       ]),
     );
@@ -720,7 +723,7 @@ class _EditEventSheetState extends State<_EditEventSheet> {
 
   Widget _editChip(String label, bool selected, VoidCallback onTap) {
     final c = Theme.of(context).colorScheme.primary;
-    return GestureDetector(onTap: onTap, child: Container(
+    return GestureDetector(onTap: () { HapticFeedback.lightImpact(); onTap(); }, child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
         color: selected ? c.withOpacity(0.12) : null,

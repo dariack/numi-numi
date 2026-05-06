@@ -14,6 +14,7 @@ class PumpScreen extends StatefulWidget {
 class _PumpScreenState extends State<PumpScreen> {
   Map<String, dynamic>? _data;
   List<Map<String, dynamic>> _stock = [];
+  List<BabyEvent> _recentEvents = [];
   bool _loading = true;
 
   @override
@@ -26,12 +27,16 @@ class _PumpScreenState extends State<PumpScreen> {
     final results = await Future.wait([
       widget.service.getPumpStats(),
       widget.service.getAvailableStock(),
+      widget.service.getRecentEvents(days: 5),
     ]);
-    if (mounted) setState(() {
-      _data = results[0] as Map<String, dynamic>;
-      _stock = results[1] as List<Map<String, dynamic>>;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _data = results[0] as Map<String, dynamic>;
+        _stock = results[1] as List<Map<String, dynamic>>;
+        _recentEvents = results[2] as List<BabyEvent>;
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -44,6 +49,23 @@ class _PumpScreenState extends State<PumpScreen> {
     final avgPumped = (_data!['avgPumpedPerDay'] as double).round();
     final avgUsed = (_data!['avgUsedPerDay'] as double).round();
     final recentUsage = _data!['recentUsage'] as List;
+
+    // 5-day avg pump-source feeds per day
+    final now = DateTime.now();
+    int totalFeedLogs = 0;
+    int daysWithData = 0;
+    for (int di = 1; di <= 5; di++) {
+      final dayStart = DateTime(now.year, now.month, now.day - di);
+      final dayEnd = DateTime(now.year, now.month, now.day - di + 1);
+      final count = _recentEvents.where((e) =>
+          e.type == EventType.feed &&
+          e.source == 'pump' &&
+          !e.startTime.isBefore(dayStart) &&
+          e.startTime.isBefore(dayEnd)).length;
+      if (count > 0) daysWithData++;
+      totalFeedLogs += count;
+    }
+    final avgFeedsPerDay = daysWithData == 0 ? 0.0 : totalFeedLogs / 5;
     final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
     const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
     const storageOrder = ['room', 'fridge', 'freezer'];
@@ -91,6 +113,13 @@ class _PumpScreenState extends State<PumpScreen> {
           // 5-day averages
           sectionLabel('5-DAY AVERAGES'),
           card(child: Row(children: [
+            Expanded(child: Column(children: [
+              Text(avgFeedsPerDay == avgFeedsPerDay.roundToDouble()
+                      ? avgFeedsPerDay.toInt().toString()
+                      : avgFeedsPerDay.toStringAsFixed(1),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF6366f1))),
+              Text('Feeds/day', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+            ])),
             Expanded(child: Column(children: [
               Text(avgPumped.toString() + 'ml',
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kPumpColor)),

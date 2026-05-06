@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 
@@ -151,8 +152,12 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
   bool _loading = true;
   DateTime? _birthDate;
   List<BabyEvent> _allEvents = [];
-  int _selectedNightOffset = 1; // 1 = last night, 2 = 2 nights ago, etc.
+  int _selectedNightOffset = 1;
   late final PageController _nightPageController = PageController();
+  // Per-graph period toggle (true = 7-day, false = 4-week)
+  bool _nightStretchWk = true;
+  bool _dayFeedWk = true;
+  bool _nightFeedWk = true;
 
   @override
   void initState() {
@@ -169,7 +174,7 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
   Future<void> _load() async {
     final results = await Future.wait([
       widget.service.getBirthDate(),
-      widget.service.getRecentEvents(days: 10),
+      widget.service.getRecentEvents(days: 28),
     ]);
     if (mounted) {
       setState(() {
@@ -197,6 +202,35 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         e.type == EventType.diaper ||
         e.type == EventType.pump).toList();
     final feedEvents = _allEvents.where((e) => e.type == EventType.feed).toList();
+
+    // 7d avg daytime / night breast feeding duration + trend arrow
+    var total7dDay = 0, total7dNight = 0;
+    var recent3Night = 0, prior4Night = 0;
+    for (int di = 0; di < 7; di++) {
+      final day = DateTime(now.year, now.month, now.day - di);
+      final wStart = DateTime(day.year, day.month, day.day, 6);
+      final wEnd   = DateTime(day.year, day.month, day.day + 1, 6);
+      final dayEnd = DateTime(day.year, day.month, day.day, 22);
+      var dayNightMin = 0;
+      for (final f in feedEvents) {
+        if (f.source == 'pump') continue;
+        if (f.startTime.isBefore(wStart) || !f.startTime.isBefore(wEnd)) continue;
+        final dur = f.duration?.inMinutes ?? 0;
+        if (f.startTime.isBefore(dayEnd)) {
+          total7dDay += dur;
+        } else {
+          total7dNight += dur;
+          dayNightMin  += dur;
+        }
+      }
+      if (di < 3) { recent3Night += dayNightMin; } else { prior4Night += dayNightMin; }
+    }
+    final avg7dDayFeedMin   = total7dDay   ~/ 7;
+    final avg7dNightFeedMin = total7dNight ~/ 7;
+    final trendArrow = prior4Night == 0 ? '→'
+        : (recent3Night / 3 < prior4Night / 4 * 0.9 ? '↓'
+        : recent3Night / 3 > prior4Night / 4 * 1.1 ? '↑'
+        : '→');
 
     // Determine last night
     // Adjust for early morning — if before 8am, yesterday hasn't ended yet
@@ -226,35 +260,104 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     final avgLongest = validLongest.isEmpty ? 0 :
         validLongest.fold(0, (s, d) => s + d.longest) ~/ validLongest.length;
 
-    // Evening / cluster feeding
-    final eveningData = <({DateTime lastFeedTime, bool isCluster, int firstStretch})>[];
-    for (int di = 7; di >= 1; di--) {
+    // Check if 4 weeks of data exists (any event older than 14 days)
+    final has4wData = _allEvents.any((e) => now.difference(e.startTime).inDays >= 14);
+
+    // 4-week: nightly longest stretch (weekly averages)
+    final nightData4w = <({String label, int longest})>[];
+    if (!_nightStretchWk && has4wData) {
+      for (int wi = 4; wi >= 1; wi--) {
+        final weekVals = <int>[];
+        for (int d = 7 * wi; d > 7 * (wi - 1); d--) {
+          final base = DateTime(now.year, now.month, now.day - d);
+          final win = _nightWindow(base);
+          final gaps = _inferNightSleep(actionEvents, win.start, win.end, gapMin);
+          if (gaps.isNotEmpty) weekVals.add(gaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b));
+        }
+        nightData4w.add((label: '${wi}w', longest: weekVals.isEmpty ? 0 : weekVals.fold(0, (s, v) => s + v) ~/ weekVals.length));
+      }
+    }
+
+    // 4-week: daytime feed count (weekly averages, feeds/day)
+    final dayFeedData4w = <({String label, int count})>[];
+    if (!_dayFeedWk && has4wData) {
+      for (int wi = 4; wi >= 1; wi--) {
+        int total = 0;
+        for (int d = 7 * wi; d > 7 * (wi - 1); d--) {
+          final base = DateTime(now.year, now.month, now.day - d);
+          final dfStart = DateTime(base.year, base.month, base.day, 8);
+          final dfEnd = DateTime(base.year, base.month, base.day, 20);
+          total += feedEvents.where((e) => !e.startTime.isBefore(dfStart) && e.startTime.isBefore(dfEnd)).length;
+        }
+        dayFeedData4w.add((label: '${wi}w', count: (total / 7).round()));
+      }
+    }
+
+    // 4-week: night feed sessions (weekly averages, sessions/night)
+    final nightFeedTrend4w = <({String label, int count})>[];
+    if (!_nightFeedWk && has4wData) {
+      for (int wi = 4; wi >= 1; wi--) {
+        int totalSessions = 0;
+        for (int d = 7 * wi; d > 7 * (wi - 1); d--) {
+          final base = DateTime(now.year, now.month, now.day - d - 1);
+          final win = _nightWindow(base);
+          final nfFeeds = feedEvents
+              .where((e) => !e.startTime.isBefore(win.start) && !e.startTime.isAfter(win.end))
+              .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+          int sessions = 0;
+          if (nfFeeds.isNotEmpty) {
+            sessions = 1;
+            for (int i = 1; i < nfFeeds.length; i++) {
+              final prev = nfFeeds[i - 1].endTime ?? nfFeeds[i - 1].startTime;
+              if (nfFeeds[i].startTime.difference(prev).inMinutes > 30) sessions++;
+            }
+          }
+          totalSessions += sessions;
+        }
+        nightFeedTrend4w.add((label: '${wi}w', count: (totalSessions / 7).round()));
+      }
+    }
+
+    // Evening feeding correlation — 14 days, dense = 2+ feeds between 6pm–10pm
+    final eveningData = <({DateTime lastFeedTime, bool isDenseEvening, int firstStretch})>[];
+    for (int di = 14; di >= 1; di--) {
       final base = DateTime(now.year, now.month, now.day - di);
       final win = _nightWindow(base);
       final eveningStart = DateTime(base.year, base.month, base.day, 18);
+      final eveningEnd10 = DateTime(base.year, base.month, base.day, 22);
       final eveningFeeds = feedEvents
           .where((e) => !e.startTime.isBefore(eveningStart) &&
-              e.startTime.isBefore(win.start.add(const Duration(hours: 2))))
+              e.startTime.isBefore(eveningEnd10))
           .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
       if (eveningFeeds.isEmpty) continue;
       final lastFeed = eveningFeeds.last;
-      final clusterWindow = lastFeed.startTime.subtract(const Duration(hours: 2));
-      final isCluster = eveningFeeds.where((e) => !e.startTime.isBefore(clusterWindow)).length >= 2;
-      // First stretch = gap after last evening feed, starting from feed end (may be before 22:00)
+      final isDenseEvening = eveningFeeds.length >= 2;
       final searchFrom = lastFeed.endTime ?? lastFeed.startTime;
       final gaps = _inferNightSleep(actionEvents, searchFrom, win.end, gapMin);
       final firstStretch = gaps.isEmpty ? 0 : gaps.first.minutes;
-      eveningData.add((lastFeedTime: lastFeed.startTime, isCluster: isCluster, firstStretch: firstStretch));
+      eveningData.add((lastFeedTime: lastFeed.startTime, isDenseEvening: isDenseEvening, firstStretch: firstStretch));
     }
-    final clusterNights = eveningData.where((d) => d.isCluster).toList();
-    final nonClusterNights = eveningData.where((d) => !d.isCluster).toList();
-    final avgCluster = clusterNights.isEmpty ? 0 :
-        clusterNights.fold(0, (s, d) => s + d.firstStretch) ~/ clusterNights.length;
-    final avgNoCluster = nonClusterNights.isEmpty ? 0 :
-        nonClusterNights.fold(0, (s, d) => s + d.firstStretch) ~/ nonClusterNights.length;
+    final denseNights  = eveningData.where((d) => d.isDenseEvening).toList();
+    final sparseNights = eveningData.where((d) => !d.isDenseEvening).toList();
+    final avgDense  = denseNights.isEmpty  ? 0 :
+        denseNights.fold(0, (s, d) => s + d.firstStretch)  ~/ denseNights.length;
+    final avgSparse = sparseNights.isEmpty ? 0 :
+        sparseNights.fold(0, (s, d) => s + d.firstStretch) ~/ sparseNights.length;
     final avgLastFeedMs = eveningData.isEmpty ? 0 :
         eveningData.fold<int>(0, (s, d) => s + d.lastFeedTime.millisecondsSinceEpoch) ~/ eveningData.length;
     final avgLastFeed = avgLastFeedMs > 0 ? DateTime.fromMillisecondsSinceEpoch(avgLastFeedMs) : null;
+
+    // Blurb for evening feeding section
+    final String eveningBlurb;
+    if (denseNights.length < 4 || sparseNights.length < 4) {
+      eveningBlurb = 'Not enough data yet. Tracking nights with 2+ feeds between 6–10pm vs sparser evenings (${denseNights.length} dense, ${sparseNights.length} sparse so far).';
+    } else if ((avgDense - avgSparse).abs() < 30) {
+      eveningBlurb = 'No clear pattern yet — dense evenings: ${_fmtHm(avgDense)} first stretch vs ${_fmtHm(avgSparse)} on sparse nights.';
+    } else if (avgDense > avgSparse) {
+      eveningBlurb = '✅ 2+ feeds between 6–10pm adds ~${_fmtHm(avgDense - avgSparse)} to the first stretch (${_fmtHm(avgDense)} vs ${_fmtHm(avgSparse)}).';
+    } else {
+      eveningBlurb = 'More feeds 6–10pm didn\'t extend the first stretch on recent data (${_fmtHm(avgDense)} dense vs ${_fmtHm(avgSparse)} sparse).';
+    }
 
     // Daytime feed density (08:00–20:00)
     final dayFeedData = <({String label, int count, int avgGap})>[];
@@ -331,13 +434,13 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       recs.add((icon: '⚠️', color: _kAmber,
           text: 'Night feeds increased recently. Check for a growth spurt, or consider whether daytime feeds can be increased.'));
     }
-    if (clusterNights.isNotEmpty && nonClusterNights.isNotEmpty && avgCluster > avgNoCluster) {
-      final diff = avgCluster - avgNoCluster;
+    if (denseNights.isNotEmpty && sparseNights.isNotEmpty && avgDense > avgSparse) {
+      final diff = avgDense - avgSparse;
       recs.add((icon: '🍇', color: _kPurple,
-          text: 'Cluster feeding is working — adds ~${_fmtHm(diff)} to the first stretch. Keep the evening feeds dense.'));
-    } else if (clusterNights.isEmpty && (weeks ?? 0) >= 6) {
+          text: '2+ feeds between 6–10pm adds ~${_fmtHm(diff)} to the first stretch. Keep the evening feeds dense.'));
+    } else if (denseNights.isEmpty && (weeks ?? 0) >= 6) {
       recs.add((icon: '🍇', color: _kPurple,
-          text: 'No cluster feeding detected. Try 2+ feeds between 6–10pm to extend the first stretch.'));
+          text: 'Try 2+ feeds between 6–10pm to extend the first night stretch.'));
     }
     if (avgLongest > 0) {
       if (avgLongest < (bm * 0.7).round()) {
@@ -349,281 +452,301 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       }
     }
 
-    // ── Narrative log for selected night ──────────────────────────────
+    // ── Narrative log — interleaved timeline (fixes missed events) ────
     final List<Widget> narrativeWidgets = [];
     if (lastNightEvents.isNotEmpty || lastNightGaps.isNotEmpty) {
-      final sortedNarGaps = [...lastNightGaps]..sort((a, b) => a.start.compareTo(b.start));
-      DateTime cursor = lastNight.start;
-      for (int gi = 0; gi <= sortedNarGaps.length; gi++) {
-        final isLast = gi == sortedNarGaps.length;
-        final windowEnd = isLast ? lastNight.end : sortedNarGaps[gi].start;
-        final wakeEvs = lastNightEvents
-            .where((e) => !e.startTime.isBefore(cursor) && e.startTime.isBefore(windowEnd))
-            .toList();
-        if (wakeEvs.isNotEmpty) {
-          final feeds = wakeEvs.where((e) => e.type == EventType.feed).toList();
-          final diapers = wakeEvs.where((e) => e.type == EventType.diaper).toList();
-          int breastMin = 0; int pumpMl = 0;
-          for (final f in feeds) {
-            if (f.source == 'pump') {
-              int ml = f.mlFed ?? 0;
-              if (ml == 0 && f.linkedPumps != null) {
-                try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
-              }
-              pumpMl += ml;
-            } else {
-              breastMin += f.durationMinutes ?? 0;
+      // Group events into sessions (events within 30min of each other)
+      final sortedEvs = [...lastNightEvents]..sort((a, b) => a.startTime.compareTo(b.startTime));
+      final sessions = <List<BabyEvent>>[];
+      for (final e in sortedEvs) {
+        if (sessions.isEmpty || e.startTime.difference(sessions.last.last.startTime).inMinutes > 30) {
+          sessions.add([e]);
+        } else {
+          sessions.last.add(e);
+        }
+      }
+      // Build unified timeline entries (sleep gaps + wake sessions)
+      final timeline = <({DateTime time, bool isSleep, String text})>[];
+      for (final gap in lastNightGaps) {
+        timeline.add((time: gap.start, isSleep: true, text: 'slept for ${_fmtHm(gap.minutes)}'));
+      }
+      for (final session in sessions) {
+        final feeds = session.where((e) => e.type == EventType.feed).toList();
+        final diapers = session.where((e) => e.type == EventType.diaper).toList();
+        int breastMin = 0; int pumpMl = 0;
+        for (final f in feeds) {
+          if (f.source == 'pump') {
+            int ml = f.mlFed ?? 0;
+            if (ml == 0 && f.linkedPumps != null) {
+              try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
             }
-          }
-          final parts = <String>[];
-          if (feeds.isNotEmpty) {
-            final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
-            parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
-          }
-          if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
-          if (parts.isNotEmpty) {
-            narrativeWidgets.add(_NarrativeRow(
-              time: _fmtTime(wakeEvs.first.startTime),
-              text: parts.join('  ·  '),
-              isSleep: false,
-            ));
+            pumpMl += ml;
+          } else {
+            breastMin += f.durationMinutes ?? 0;
           }
         }
-        if (!isLast) {
-          final gap = sortedNarGaps[gi];
-          narrativeWidgets.add(_NarrativeRow(
-            time: _fmtTime(gap.start),
-            text: 'slept for ${_fmtHm(gap.minutes)}',
-            isSleep: true,
-          ));
-          cursor = gap.end;
+        final parts = <String>[];
+        if (feeds.isNotEmpty) {
+          final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
+          parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
         }
+        if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
+        if (parts.isNotEmpty) {
+          timeline.add((time: session.first.startTime, isSleep: false, text: parts.join('  ·  ')));
+        }
+      }
+      // Sort chronologically; at same time, wake events before sleep entries
+      timeline.sort((a, b) {
+        final cmp = a.time.compareTo(b.time);
+        if (cmp != 0) return cmp;
+        if (!a.isSleep && b.isSleep) return -1;
+        if (a.isSleep && !b.isSleep) return 1;
+        return 0;
+      });
+      for (final entry in timeline) {
+        narrativeWidgets.add(_NarrativeRow(time: _fmtTime(entry.time), text: entry.text, isSleep: entry.isSleep));
       }
     }
 
-    return RefreshIndicator(
+    // ── Reusable tab content builders ─────────────────────────────────
+    Widget nightTab() => RefreshIndicator(
       onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Age chip
-          if (weeks != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text('Baby is $weeks weeks old',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+      child: ListView(padding: const EdgeInsets.all(16), children: [
+        // Page indicator dots
+        SizedBox(height: 8, child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(3, (i) => Container(
+            width: _selectedNightOffset == i + 1 ? 16 : 6,
+            height: 6,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              color: _selectedNightOffset == i + 1 ? _kIndigo : Colors.grey.shade700,
             ),
-
-          // No birth date banner
-          if (_birthDate == null)
-            _Banner(
-              color: _kPurple,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('📅 Set baby birth date',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: _kPurple, fontSize: 14)),
-                const SizedBox(height: 4),
-                const Text('Add birth date in Settings for age-appropriate tips.',
-                    style: TextStyle(fontSize: 12, color: _kMuted)),
-              ]),
-            ),
-
-          // ── 1. Night Detail (swipeable PageView, 3 nights) ────────
-          _SectionLabel('🌙 Night Detail'),
-          SizedBox(height: 8, child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(3, (i) => Container(
-              width: _selectedNightOffset == i + 1 ? 16 : 6,
-              height: 6,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(3),
-                color: _selectedNightOffset == i + 1 ? _kIndigo : Colors.grey.shade700,
-              ),
-            )),
           )),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 360,
-            child: PageView.builder(
-              controller: _nightPageController,
-              itemCount: 3,
-              onPageChanged: (i) => setState(() => _selectedNightOffset = i + 1),
-              itemBuilder: (context, pageIndex) {
-                final offset = pageIndex + 1;
-                final baseOff = now.hour < 8 ? offset + 1 : offset;
-                final pgBase = DateTime(now.year, now.month, now.day - baseOff);
-                final pgNight = _nightWindow(pgBase);
-                final pgStrict = _strictNightWindow(pgBase);
-                final pgGaps = _inferNightSleep(actionEvents, pgNight.start, pgNight.end, gapMin);
-                final pgStrictGaps = _inferNightSleep(actionEvents, pgStrict.start, pgStrict.end, gapMin);
-                final pgEvents = actionEvents
-                    .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
-                    .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
-                final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-                final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
-                // Evening feeds (18:00–22:00)
-                final pgEveStart = DateTime(pgBase.year, pgBase.month, pgBase.day, 18);
-                final pgEveEnd = DateTime(pgBase.year, pgBase.month, pgBase.day, 22);
-                final pgEveFeeds = feedEvents.where((e) => !e.startTime.isBefore(pgEveStart) && e.startTime.isBefore(pgEveEnd)).toList();
-                int pgEveBreastMin = 0; int pgEveMl = 0;
-                for (final f in pgEveFeeds) {
-                  if (f.source == 'pump') {
-                    int ml = f.mlFed ?? 0;
-                    if (ml == 0 && f.linkedPumps != null) {
-                      try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
-                    }
-                    pgEveMl += ml;
-                  } else {
-                    pgEveBreastMin += f.durationMinutes ?? 0;
+        )),
+        const SizedBox(height: 8),
+        // Swipeable PageView — stat cards + timeline
+        SizedBox(
+          height: 270,
+          child: PageView.builder(
+            controller: _nightPageController,
+            itemCount: 3,
+            onPageChanged: (i) { HapticFeedback.lightImpact(); setState(() => _selectedNightOffset = i + 1); },
+            itemBuilder: (context, pageIndex) {
+              final offset = pageIndex + 1;
+              final baseOff = now.hour < 8 ? offset + 1 : offset;
+              final pgBase = DateTime(now.year, now.month, now.day - baseOff);
+              final pgNight = _nightWindow(pgBase);
+              final pgStrict = _strictNightWindow(pgBase);
+              final pgGaps = _inferNightSleep(actionEvents, pgNight.start, pgNight.end, gapMin);
+              final pgStrictGaps = _inferNightSleep(actionEvents, pgStrict.start, pgStrict.end, gapMin);
+              final pgEvents = actionEvents
+                  .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
+                  .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+              final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
+              final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
+              final pgEveStart = DateTime(pgBase.year, pgBase.month, pgBase.day, 18);
+              final pgEveEnd = DateTime(pgBase.year, pgBase.month, pgBase.day, 22);
+              final pgEveFeeds = feedEvents.where((e) => !e.startTime.isBefore(pgEveStart) && e.startTime.isBefore(pgEveEnd)).toList();
+              int pgEveBreastMin = 0; int pgEveMl = 0;
+              for (final f in pgEveFeeds) {
+                if (f.source == 'pump') {
+                  int ml = f.mlFed ?? 0;
+                  if (ml == 0 && f.linkedPumps != null) {
+                    try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
                   }
+                  pgEveMl += ml;
+                } else {
+                  pgEveBreastMin += f.durationMinutes ?? 0;
                 }
-                final pgEveParts = [if (pgEveBreastMin > 0) _fmtHm(pgEveBreastMin), if (pgEveMl > 0) '${pgEveMl}ml'];
-                final pgEveValue = pgEveFeeds.isEmpty ? '--' : pgEveParts.isNotEmpty ? pgEveParts.join('+') : '${pgEveFeeds.length}×';
-                final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
+              }
+              final pgEveParts = [if (pgEveBreastMin > 0) _fmtHm(pgEveBreastMin), if (pgEveMl > 0) '${pgEveMl}ml'];
+              final pgEveValue = pgEveFeeds.isEmpty ? '--' : pgEveParts.isNotEmpty ? pgEveParts.join('+') : '${pgEveFeeds.length}×';
+              final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('$pgLabel · ${_fmtDate(pgBase)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  if (pgEvents.isEmpty && pgGaps.isEmpty)
+                    Text('No data for this night.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+                  else ...[
+                    Row(children: [
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
+                      const SizedBox(width: 8),
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌆', value: pgEveValue, label: 'Eve feeds', sub: '18–22h', color: _kOrange)),
+                      const SizedBox(width: 8),
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
+                    ]),
+                    const SizedBox(height: 10),
+                    _NightTimeline(
+                      cardBg: cardBg,
+                      nightStart: pgNight.start,
+                      nightEnd: pgNight.end,
+                      strictStart: pgStrict.start,
+                      events: pgEvents,
+                      gaps: pgGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
+                    ),
+                    const SizedBox(height: 6),
+                    _Blurb('Gaps >${gapMin}min inferred as sleep · swipe to compare nights'),
+                  ],
+                ]),
+              );
+            },
+          ),
+        ),
+        // Night log — immediately below timeline (no extra gap)
+        if (narrativeWidgets.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _SectionLabel('📋 Night Log · ${_fmtDate(lastNightBase)}'),
+          _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: narrativeWidgets)),
+        ],
+        const SizedBox(height: 16),
+      ]),
+    );
 
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('$pgLabel · ${_fmtDate(pgBase)}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 8),
-                    if (pgEvents.isEmpty && pgGaps.isEmpty)
-                      Text('No data for this night.',
-                          style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
-                    else ...[
-                      Row(children: [
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
-                        const SizedBox(width: 8),
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌆', value: pgEveValue, label: 'Evening feeds', sub: '18–22h', color: _kOrange)),
-                        const SizedBox(width: 8),
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
-                      ]),
-                      const SizedBox(height: 10),
-                      _NightTimeline(
-                        cardBg: cardBg,
-                        nightStart: pgNight.start,
-                        nightEnd: pgNight.end,
-                        strictStart: pgStrict.start,
-                        events: pgEvents,
-                        gaps: pgGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
-                      ),
-                      const SizedBox(height: 6),
-                      _Blurb('Gaps >' + gapMin.toString() + 'min inferred as sleep · swipe to compare nights'),
-                    ],
-                  ]),
-                );
-              },
+    // Compact SegmentedButton toggle for week/month view
+    Widget periodToggle({required bool isWeek, required void Function(bool) onChange}) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 2),
+        child: Center(
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text('7 days')),
+              ButtonSegment(value: false, label: Text('4 weeks')),
+            ],
+            selected: {isWeek},
+            onSelectionChanged: (s) => onChange(s.first),
+            showSelectedIcon: false,
+            style: ButtonStyle(
+              padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 16, vertical: 0)),
+              minimumSize: WidgetStateProperty.all(const Size(0, 30)),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
             ),
           ),
-          const SizedBox(height: 16),
+        ),
+      );
 
-          // ── Night narrative log ─────────────────────────────────
-          if (narrativeWidgets.isNotEmpty) ...[
-            _SectionLabel('📋 Night Log · ${_fmtDate(lastNightBase)}'),
-            _Card(cardBg: cardBg, child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: narrativeWidgets,
-            )),
-          ],
-
-          // ── 2. 7-Day Trend ──────────────────────────────────────
-          _SectionLabel('📊 7-Day Trend'),
-          _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _MiniBarChart(
-              data: nightData.map((d) => (label: d.label, v1: d.longest)).toList(),
-              color1: _kIndigo,
-              benchmark: bm,
-            ),
-            const SizedBox(height: 10),
-            Center(child: Column(children: [
-              Text(avgLongest > 0 ? _fmtHm(avgLongest) : '--',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kIndigo)),
-              Text('Avg longest stretch', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
-            ])),
-            const SizedBox(height: 8),
-            _Blurb(bracket != null
-                ? 'Age benchmark: ${_fmtHm(bm)} longest stretch for $weeks-week baby (dashed line). Individual variation is normal.'
-                : 'Add birth date in Settings to see age benchmark.'),
+    Widget trendsTab() => RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(padding: const EdgeInsets.all(16), children: [
+        _SectionLabel('📊 Longest Stretch'),
+        _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _MiniBarChart(
+            data: _nightStretchWk
+                ? nightData.map((d) => (label: d.label, v1: d.longest)).toList()
+                : nightData4w.map((d) => (label: d.label, v1: d.longest)).toList(),
+            color1: _kIndigo,
+            benchmark: _nightStretchWk ? bm : 0,
+          ),
+          const SizedBox(height: 10),
+          Center(child: Column(children: [
+            Text(avgLongest > 0 ? _fmtHm(avgLongest) : '--',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kIndigo)),
+            Text('Avg longest stretch (7d)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
           ])),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: _StatCard(
+              cardBg: cardBg, emoji: '☀️',
+              value: avg7dDayFeedMin > 0 ? _fmtHm(avg7dDayFeedMin) : '--',
+              label: 'Daytime feeding', sub: '7d avg', color: _kOrange,
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: _StatCard(
+              cardBg: cardBg, emoji: '🌙',
+              value: avg7dNightFeedMin > 0 ? _fmtHm(avg7dNightFeedMin) : '--',
+              label: 'Night feeding', sub: '7d avg · $trendArrow', color: _kIndigo,
+            )),
+          ]),
+          const SizedBox(height: 8),
+          _Blurb(_nightStretchWk
+              ? (bracket != null
+                  ? 'Age benchmark: ${_fmtHm(bm)} for $weeks-week baby (dashed line).'
+                  : 'Add birth date in Settings to see age benchmark.')
+              : 'Weekly avg of nightly longest stretch. Bars = avg minutes per week.'),
+          if (has4wData) periodToggle(isWeek: _nightStretchWk, onChange: (v) => setState(() => _nightStretchWk = v)),
+        ])),
 
-          // ── 3. Evening Feeding Pattern ──────────────────────────
-          _SectionLabel('🍼 Evening Feeding Pattern'),
-          if (eveningData.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text('Not enough data yet.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-            )
-          else
-            _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Column(children: [
-                  Text(avgLastFeed != null ? _fmtTime(avgLastFeed) : '--',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
-                  Text('Avg last evening feed', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
-                ])),
-                Expanded(child: Column(children: [
-                  Text('${clusterNights.length}/${eveningData.length}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
-                  Text('Nights with cluster feeding', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
-                ])),
-              ]),
-              if (clusterNights.isNotEmpty && nonClusterNights.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
-                Text('First stretch after:', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                const SizedBox(height: 4),
-                Row(children: [
-                  Text(_fmtHm(avgCluster), style: const TextStyle(fontWeight: FontWeight.bold, color: _kGreen)),
-                  const SizedBox(width: 4),
-                  Text('with cluster', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                  const SizedBox(width: 16),
-                  Text(_fmtHm(avgNoCluster), style: const TextStyle(fontWeight: FontWeight.bold, color: _kAmber)),
-                  const SizedBox(width: 4),
-                  Text('without', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                ]),
-              ],
-              const SizedBox(height: 8),
-              _Blurb(clusterNights.isNotEmpty && nonClusterNights.isNotEmpty && avgCluster > avgNoCluster
-                  ? '✅ Cluster feeding is working — adds ~${_fmtHm(avgCluster - avgNoCluster)} to the first stretch. Keep the evening feeds dense.'
-                  : clusterNights.isEmpty && (weeks ?? 0) >= 6
-                      ? 'No cluster feeding detected. Try 2+ feeds between 6–10pm to extend the first stretch.'
-                      : 'Cluster feeding detected on ${clusterNights.length}/${eveningData.length} nights.'),
-            ])),
-          const SizedBox(height: 16),
-
-          // ── 4. Daytime Feed Density ─────────────────────────────
-          _SectionLabel('☀️ Daytime Feed Density'),
+        _SectionLabel('🍼 Evening Feeding'),
+        if (eveningData.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text('Not enough data yet.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+          )
+        else
           _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Expanded(child: Column(children: [
-                Text(avgFeedCount > 0 ? avgFeedCount.toStringAsFixed(1) : '--',
+                Text(avgLastFeed != null ? _fmtTime(avgLastFeed) : '--',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
-                Text('Avg feeds/day\n8am–8pm', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
+                Text('Avg last eve feed', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
               ])),
               Expanded(child: Column(children: [
-                Text(avgGapVal > 0 ? _fmtHm(avgGapVal) : '--',
+                Text('${denseNights.length}/${eveningData.length}',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
-                Text('Avg gap between feeds', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
+                Text('Dense evenings', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
               ])),
             ]),
-            const SizedBox(height: 12),
-            _DayFeedChart(data: dayFeedData.map((d) => (label: d.label, count: d.count)).toList()),
+            if (denseNights.isNotEmpty && sparseNights.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Text('First stretch after:', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              const SizedBox(height: 4),
+              Row(children: [
+                Text(_fmtHm(avgDense), style: const TextStyle(fontWeight: FontWeight.bold, color: _kGreen)),
+                const SizedBox(width: 4),
+                Text('dense evening', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                const SizedBox(width: 16),
+                Text(_fmtHm(avgSparse), style: const TextStyle(fontWeight: FontWeight.bold, color: _kAmber)),
+                const SizedBox(width: 4),
+                Text('sparse', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              ]),
+            ],
             const SizedBox(height: 8),
-            _Blurb(avgFeedCount >= 4
-                ? '✅ ${avgFeedCount.toStringAsFixed(1)} avg feeds — above Giordano target of 4+ evenly spaced feeds. Front-loading calories 8am–8pm is the key lever for longer night stretches.'
-                : avgFeedCount > 0
-                    ? '⚠️ ${avgFeedCount.toStringAsFixed(1)} avg feeds — below the 4-feed target. More frequent daytime feeds reduce night hunger.'
-                    : 'Not enough daytime feed data yet.'),
+            _Blurb(eveningBlurb),
           ])),
-          const SizedBox(height: 16),
 
-          // ── 5. Night Feed Trend ─────────────────────────────────
-          _SectionLabel('📉 Night Feed Trend'),
-          _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _NightFeedChart(data: nightFeedTrend.map((d) => (label: d.label, count: d.count)).toList()),
-            const SizedBox(height: 8),
+        _SectionLabel('☀️ Daytime Feeds'),
+        _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Column(children: [
+              Text(avgFeedCount > 0 ? avgFeedCount.toStringAsFixed(1) : '--',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
+              Text('Avg feeds/day\n8am–8pm', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
+            ])),
+            Expanded(child: Column(children: [
+              Text(avgGapVal > 0 ? _fmtHm(avgGapVal) : '--',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _kOrange)),
+              Text('Avg feed gap', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), textAlign: TextAlign.center),
+            ])),
+          ]),
+          const SizedBox(height: 12),
+          _DayFeedChart(data: _dayFeedWk
+              ? dayFeedData.map((d) => (label: d.label, count: d.count)).toList()
+              : dayFeedData4w),
+          const SizedBox(height: 8),
+          _Blurb(_dayFeedWk
+              ? (avgFeedCount >= 4
+                  ? '✅ ${avgFeedCount.toStringAsFixed(1)} avg feeds — above Giordano target of 4+.'
+                  : avgFeedCount > 0
+                      ? '⚠️ ${avgFeedCount.toStringAsFixed(1)} avg feeds — below the 4-feed target.'
+                      : 'Not enough daytime feed data yet.')
+              : 'Weekly avg feeds/day (8am–8pm). Target: 4+ feeds per day.'),
+          if (has4wData) periodToggle(isWeek: _dayFeedWk, onChange: (v) => setState(() => _dayFeedWk = v)),
+        ])),
+
+        _SectionLabel('📉 Night Feeds'),
+        _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _NightFeedChart(data: _nightFeedWk
+              ? nightFeedTrend.map((d) => (label: d.label, count: d.count)).toList()
+              : nightFeedTrend4w),
+          const SizedBox(height: 8),
+          if (_nightFeedWk) ...[
             Row(children: [
               Text(nfTrend == 'down' ? '📉' : nfTrend == 'up' ? '📈' : '➡️', style: const TextStyle(fontSize: 18)),
               const SizedBox(width: 8),
@@ -637,48 +760,92 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
               )),
             ]),
             const SizedBox(height: 4),
-            _Blurb(nfTrend == 'down'
-                ? 'Down from ${olderAvgNF.toStringAsFixed(1)} to ${recentAvgNF.toStringAsFixed(1)} sessions/night. Giordano method: gradually reducing night feeds is the path to sleeping through.'
-                : nfTrend == 'up'
-                    ? 'Up from ${olderAvgNF.toStringAsFixed(1)} to ${recentAvgNF.toStringAsFixed(1)} sessions/night. Growth spurts and regressions are normal.'
-                    : 'Holding at ~${recentAvgNF.toStringAsFixed(1)} sessions/night. Each session = one complete feeding (both sides = one session).'),
-          ])),
-          const SizedBox(height: 16),
+          ],
+          _Blurb(_nightFeedWk
+              ? (nfTrend == 'down'
+                  ? 'Down from ${olderAvgNF.toStringAsFixed(1)} to ${recentAvgNF.toStringAsFixed(1)} sessions/night.'
+                  : nfTrend == 'up'
+                      ? 'Up from ${olderAvgNF.toStringAsFixed(1)} to ${recentAvgNF.toStringAsFixed(1)} sessions/night. Growth spurts are normal.'
+                      : 'Holding at ~${recentAvgNF.toStringAsFixed(1)} sessions/night.')
+              : 'Weekly avg night feed sessions. Each bar = avg sessions/night for that week.'),
+          if (has4wData) periodToggle(isWeek: _nightFeedWk, onChange: (v) => setState(() => _nightFeedWk = v)),
+        ])),
+        const SizedBox(height: 16),
+      ]),
+    );
 
-          // ── 6. Insights & Tips ──────────────────────────────────
-          _SectionLabel('🎯 Insights & Tips'),
+    Widget tipsTab() => RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(padding: const EdgeInsets.all(16), children: [
+        _SectionLabel('🎯 Your Data'),
+        _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (recs.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text('Not enough data yet. Keep tracking!',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+            )
+          else
+            ...recs.map((r) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(r.icon, style: const TextStyle(fontSize: 18)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(r.text, style: TextStyle(fontSize: 13, color: r.color, height: 1.4))),
+              ]),
+            )),
+        ])),
+        if (bracket != null) ...[
+          _SectionLabel('💡 For $weeks Weeks'),
           _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _SubLabel('BASED ON YOUR DATA'),
-            if (recs.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text('Not enough data yet. Keep tracking!',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-              )
-            else
-              ...recs.map((r) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 7),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r.icon, style: const TextStyle(fontSize: 18)),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(r.text,
-                      style: TextStyle(fontSize: 13, color: r.color, height: 1.4))),
-                ]),
-              )),
-            if (bracket != null) ...[
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              const SizedBox(height: 10),
-              _SubLabel('GENERAL TIPS FOR $weeks WEEKS'),
-              ..._ageTips(bracket, weeks).map((tip) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: Text(tip, style: TextStyle(fontSize: 13, color: Colors.grey.shade400, height: 1.4)),
-              )),
-            ],
+            ..._ageTips(bracket, weeks).map((tip) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Text(tip, style: TextStyle(fontSize: 13, color: Colors.grey.shade400, height: 1.4)),
+            )),
           ])),
-          const SizedBox(height: 24),
         ],
-      ),
+        const SizedBox(height: 24),
+      ]),
+    );
+
+    return DefaultTabController(
+      length: 3,
+      child: Column(children: [
+        // Compact header (age + birth date banner)
+        if (weeks != null || _birthDate == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (weeks != null)
+                Text('Baby is $weeks weeks old',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+              if (_birthDate == null)
+                _Banner(
+                  color: _kPurple,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('📅 Set baby birth date',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: _kPurple, fontSize: 14)),
+                    const SizedBox(height: 4),
+                    const Text('Add birth date in Settings for age-appropriate tips.',
+                        style: TextStyle(fontSize: 12, color: _kMuted)),
+                  ]),
+                ),
+            ]),
+          ),
+        TabBar(
+          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          tabs: const [
+            Tab(text: 'Night'),
+            Tab(text: 'Trends'),
+            Tab(text: 'Tips'),
+          ],
+        ),
+        Expanded(child: TabBarView(children: [
+          nightTab(),
+          trendsTab(),
+          tipsTab(),
+        ])),
+      ]),
     );
   }
 }
@@ -696,16 +863,6 @@ class _SectionLabel extends StatelessWidget {
   );
 }
 
-class _SubLabel extends StatelessWidget {
-  final String text;
-  const _SubLabel(this.text);
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
-        color: Colors.grey.shade500, letterSpacing: 0.08)),
-  );
-}
 
 class _Card extends StatelessWidget {
   final Widget child;

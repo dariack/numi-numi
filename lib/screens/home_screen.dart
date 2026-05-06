@@ -154,18 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.setString('device_id', id);
     }
 
-    // Recover caregiver name from Firestore if SharedPreferences was wiped (e.g. reinstall).
-    String name = prefs.getString('caregiver_name') ?? '';
-    if (name.isEmpty) {
-      final recovered = await widget.settingsService?.loadCaregiverName(id);
-      if (recovered != null && recovered.isNotEmpty) {
-        name = recovered;
-        await prefs.setString('caregiver_name', name);
-      }
-    }
-
-    if (name.isNotEmpty) widget.service.updateDeviceName(id, name);
-    if (mounted) setState(() { _myDeviceId = id; _myCaregiverName = name; });
+    if (mounted) setState(() { _myDeviceId = id; });
     // Re-run in case events stream fired before device ID was ready
     if (_events.isNotEmpty) _checkPartnerActivity(_events);
   }
@@ -982,7 +971,7 @@ class _FeedStatCard extends StatelessWidget {
               color:
                   isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
       child: GestureDetector(
-        onTap: onTap,
+        onTap: onTap == null ? null : () { HapticFeedback.lightImpact(); onTap!(); },
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('🍼', style: TextStyle(fontSize: 28)),
         const SizedBox(width: 12),
@@ -1010,7 +999,7 @@ class _FeedStatCard extends StatelessWidget {
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400))),
                     if (canResume)
                       GestureDetector(
-                        onTap: () => onResume?.call(f),
+                        onTap: () { HapticFeedback.lightImpact(); onResume?.call(f); },
                         child: Padding(
                           padding: const EdgeInsets.only(left: 8),
                           child: Text('resume',
@@ -1062,7 +1051,7 @@ class _MiniStat extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
-      onTap: onTap,
+      onTap: onTap == null ? null : () { HapticFeedback.lightImpact(); onTap!(); },
       child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1095,7 +1084,7 @@ class _MiniStat extends StatelessWidget {
                         fontSize: 12, color: Colors.grey.shade500)),
               if (onResume != null)
                 GestureDetector(
-                  onTap: onResume,
+                  onTap: () { HapticFeedback.lightImpact(); onResume!(); },
                   child: Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text('resume',
@@ -1135,7 +1124,7 @@ class _PumpStockCard extends StatelessWidget {
         (b['event'] as BabyEvent).startTime.compareTo((a['event'] as BabyEvent).startTime));
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: onTap == null ? null : () { HapticFeedback.lightImpact(); onTap!(); },
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1374,8 +1363,8 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
         shape: rng.nextInt(3), // 0=rect, 1=strip, 2=circle
       ));
     }
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400));
-    _fade  = CurvedAnimation(parent: _ctrl, curve: const Interval(0.7, 1.0));
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 3600));
+    _fade  = CurvedAnimation(parent: _ctrl, curve: const Interval(0.74, 1.0));
     _slide = CurvedAnimation(parent: _ctrl, curve: const Interval(0.0, 0.25, curve: Curves.easeOut));
     _ctrl.forward().then((_) => widget.onDone());
   }

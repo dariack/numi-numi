@@ -1,13 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/event.dart';
 import '../services/firestore_service.dart';
 
-const kFeedColor2  = Colors.orange;
+// ── Constants ────────────────────────────────────────────────────
+const kFeedColor2   = Colors.orange;
 const kDiaperColor2 = Colors.teal;
 const kPumpColor2   = Color(0xFFF472B6);
 const _kGreen  = Color(0xFF22c55e);
 const _kRed    = Color(0xFFef4444);
 const _kAmber  = Color(0xFFf59e0b);
+const _kIndigo = Color(0xFF6366f1);
+const _kOrange = Color(0xFFf97316);
+
+// ── Top-level data helpers ────────────────────────────────────────
+
+({int totalMin, int count, int dayMin, int nightMin, double avgSession})
+    _feedStatsForDay(List<BabyEvent> feeds, DateTime day) {
+  final wStart = DateTime(day.year, day.month, day.day, 6);
+  final wEnd   = DateTime(day.year, day.month, day.day + 1, 6);
+  final dayEnd = DateTime(day.year, day.month, day.day, 22);
+  final inWin  = feeds.where((e) =>
+      e.source != 'pump' &&
+      !e.startTime.isBefore(wStart) &&
+      e.startTime.isBefore(wEnd)).toList();
+  var totalMin = 0, dayMin = 0, nightMin = 0;
+  for (final f in inWin) {
+    final dur = f.duration?.inMinutes ?? 0;
+    totalMin += dur;
+    if (f.startTime.isBefore(dayEnd)) { dayMin += dur; } else { nightMin += dur; }
+  }
+  return (
+    totalMin: totalMin, count: inWin.length,
+    dayMin: dayMin, nightMin: nightMin,
+    avgSession: inWin.isEmpty ? 0.0 : totalMin / inWin.length,
+  );
+}
+
+int _wetDiaperCount(List<BabyEvent> diapers, DateTime day) {
+  final wStart = DateTime(day.year, day.month, day.day, 6);
+  final wEnd   = DateTime(day.year, day.month, day.day + 1, 6);
+  return diapers.where((e) =>
+      e.pee && !e.startTime.isBefore(wStart) && e.startTime.isBefore(wEnd)).length;
+}
+
+// ── Screen ────────────────────────────────────────────────────────
 
 class InsightsAccordionScreen extends StatefulWidget {
   final FirestoreService service;
@@ -22,6 +59,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
   bool _loading = true;
   Map<String, dynamic>? _feedData;
   Map<String, dynamic>? _diaperData;
+  List<BabyEvent> _allEvents = [];
 
   @override
   void initState() {
@@ -41,11 +79,13 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
     final results = await Future.wait([
       widget.service.getFeedInsights(),
       _loadDiaperData(),
+      widget.service.getRecentEvents(days: 28),
     ]);
     if (!mounted) return;
     setState(() {
       _feedData   = results[0] as Map<String, dynamic>;
       _diaperData = results[1] as Map<String, dynamic>;
+      _allEvents  = results[2] as List<BabyEvent>;
       _loading = false;
     });
   }
@@ -90,6 +130,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
             labelColor: color,
             unselectedLabelColor: Colors.grey.shade500,
             labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            onTap: (_) => HapticFeedback.lightImpact(),
             tabs: const [Tab(text: '🍼 Feed'), Tab(text: '🧷 Diaper')],
           );
         },
@@ -102,7 +143,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
               onRefresh: _load,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                child: _FeedPanel(data: _feedData!, isDark: isDark),
+                child: _FeedPanel(data: _feedData!, allEvents: _allEvents, isDark: isDark),
               ),
             ),
             RefreshIndicator(
@@ -119,7 +160,7 @@ class _InsightsAccordionScreenState extends State<InsightsAccordionScreen>
   }
 }
 
-// ── Shared helpers ───────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────
 
 String _fmtMins(num m) {
   if (m <= 0) return '0m';
@@ -138,7 +179,7 @@ String _fmtDate(DateTime d) {
 Widget _subHeader(String text) => Padding(
   padding: const EdgeInsets.fromLTRB(0, 14, 0, 6),
   child: Text(text, style: TextStyle(
-      fontSize: 11, fontWeight: FontWeight.w700,
+      fontSize: 10, fontWeight: FontWeight.w700,
       color: Colors.grey.shade500, letterSpacing: 0.5)),
 );
 
@@ -180,7 +221,6 @@ Widget _row(String label, String value, double cur, double avg,
   );
 }
 
-// Trend badge: shows delta in minutes vs previous period (positive = gap got longer)
 Widget _gapTrendBadge(double cur, double prev) {
   if (prev <= 0 || cur <= 0) return const SizedBox.shrink();
   final delta = cur - prev;
@@ -233,47 +273,151 @@ Widget _barChart(List<int> values, Color color) {
   ));
 }
 
-// ── Feed panel ───────────────────────────────────────────────────
+// ── Feed panel ────────────────────────────────────────────────────
 
-class _FeedPanel extends StatelessWidget {
+class _FeedPanel extends StatefulWidget {
   final Map<String, dynamic> data;
+  final List<BabyEvent> allEvents;
   final bool isDark;
-  const _FeedPanel({required this.data, required this.isDark});
+  const _FeedPanel({required this.data, required this.allEvents, required this.isDark});
+  @override
+  State<_FeedPanel> createState() => _FeedPanelState();
+}
+
+class _FeedPanelState extends State<_FeedPanel> {
+  bool _periodWk = true;
 
   @override
   Widget build(BuildContext context) {
-    final equiv24h       = data['equiv24h']        as double;
-    final avg5d          = data['avg5dEquiv']       as double;
-    final dur24h         = data['dur24h']           as int;
-    final ml24h          = data['ml24h']            as int;
-    final avgDuration    = data['avgDuration']      as double;
-    final avgGapDay      = data['avgGapDay']        as double;
-    final avgGapNight    = data['avgGapNight']      as double;
-    final avgGapDayPrev  = data['avgGapDayPrev']    as double? ?? 0;
-    final avgGapNightPrev= data['avgGapNightPrev']  as double? ?? 0;
+    final avgGapDay       = widget.data['avgGapDay']       as double;
+    final avgGapNight     = widget.data['avgGapNight']     as double;
+    final avgGapDayPrev   = widget.data['avgGapDayPrev']   as double? ?? 0;
+    final avgGapNightPrev = widget.data['avgGapNightPrev'] as double? ?? 0;
 
-    // Estimate feed count
-    final estCount24h = avgDuration > 0 ? (dur24h / avgDuration).round()
-        : equiv24h > 0 ? (equiv24h / 30).round() : 0;
-    final estAvgCount = avgDuration > 0
-        ? avg5d / avgDuration
-        : avg5d > 0 ? avg5d / 30.0 : 0.0;
-    final avgBreastTotal = avgDuration > 0 ? avgDuration * estAvgCount : 0.0;
+    final now   = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final breastFeeds = widget.allEvents.where((e) => e.type == EventType.feed).toList();
+    final diapers     = widget.allEvents.where((e) => e.type == EventType.diaper).toList();
+
+    // Today's stats
+    final todayStats = _feedStatsForDay(breastFeeds, today);
+
+    // 7-day per-day data (oldest first)
+    final days7 = List.generate(7, (i) {
+      final day = DateTime(today.year, today.month, today.day - (6 - i));
+      final s   = _feedStatsForDay(breastFeeds, day);
+      final lbl = i == 6 ? 'Today'
+          : day.day.toString().padLeft(2, '0') + '/' + day.month.toString().padLeft(2, '0');
+      return (label: lbl, totalMin: s.totalMin, dayMin: s.dayMin, nightMin: s.nightMin, avgSess: s.avgSession);
+    });
+
+    // 4-week data availability
+    final has4wData = widget.allEvents.any(
+        (e) => e.startTime.isBefore(now.subtract(const Duration(days: 14))));
+
+    // 4-week aggregates (weekly avg across days with data)
+    final weeks4 = <({String label, int totalMin, int dayMin, int nightMin, double avgSess})>[];
+    for (int wi = 3; wi >= 0; wi--) {
+      final wkStart = today.subtract(Duration(days: (wi + 1) * 7));
+      var sumT = 0, sumD = 0, sumN = 0, dwd = 0;
+      var sumAvg = 0.0;
+      for (int di = 0; di < 7; di++) {
+        final s = _feedStatsForDay(breastFeeds, wkStart.add(Duration(days: di)));
+        if (s.count > 0) {
+          sumT += s.totalMin; sumD += s.dayMin; sumN += s.nightMin;
+          sumAvg += s.avgSession; dwd++;
+        }
+      }
+      weeks4.add((
+        label: wi == 0 ? 'This w' : '${wi + 1}w ago',
+        totalMin: dwd > 0 ? sumT ~/ dwd : 0,
+        dayMin:   dwd > 0 ? sumD ~/ dwd : 0,
+        nightMin: dwd > 0 ? sumN ~/ dwd : 0,
+        avgSess:  dwd > 0 ? sumAvg / dwd : 0.0,
+      ));
+    }
+
+    // Wet diapers today
+    final wetCount = _wetDiaperCount(diapers, today);
+
+    // Chart datasets based on period toggle
+    final active = _periodWk ? days7 : weeks4;
+    final durData     = active.map((d) => (label: d.label, minutes: d.totalMin)).toList();
+    final dnData      = active.map((d) => (label: d.label, dayMin: d.dayMin, nightMin: d.nightMin)).toList();
+    final avgSessData = active.map((d) => (label: d.label, val: d.avgSess)).toList();
+
+    // Stat card display values
+    final totalTodayStr = todayStats.totalMin > 0 ? _fmtMins(todayStats.totalMin) : '--';
+    final avgSessStr    = todayStats.avgSession > 0 ? _fmtMins(todayStats.avgSession) : '--';
+    final dayPct = todayStats.totalMin > 0
+        ? (todayStats.dayMin * 100 / todayStats.totalMin).round().toString() + '% day'
+        : '--';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _subHeader('LAST 24H vs 5-DAY AVG'),
-        _row('Total intake', _fmtMins(equiv24h), equiv24h, avg5d,
-            avgLabel: 'avg ' + _fmtMins(avg5d)),
-        if (estCount24h > 0)
-          _row('Sessions', estCount24h.toString(), estCount24h.toDouble(), estAvgCount,
-              avgLabel: 'avg ' + estAvgCount.toStringAsFixed(1)),
-        if (dur24h > 0)
-          _row('Breast time', _fmtMins(dur24h), dur24h.toDouble(), avgBreastTotal,
-              avgLabel: avgBreastTotal > 0 ? 'avg ' + _fmtMins(avgBreastTotal) : null),
-        if (ml24h > 0)
-          _row('Pumped fed', ml24h.toString() + 'ml', 0, 0),
+
+        // ── 2×2 stat grid ─────────────────────────────────────────
+        _subHeader('TODAY'),
+        Row(children: [
+          Expanded(child: _StatBox(value: totalTodayStr, label: 'Total today', color: _kOrange, secondary: false)),
+          const SizedBox(width: 8),
+          Expanded(child: _StatBox(value: avgSessStr, label: 'Avg session', color: _kOrange, secondary: false)),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: _StatBox(value: dayPct, label: 'Day / Night', color: _kIndigo, secondary: false)),
+          const SizedBox(width: 8),
+          Expanded(child: _StatBox(
+            value: todayStats.count > 0 ? todayStats.count.toString() : '--',
+            label: 'Feeds today',
+            color: Colors.grey,
+            secondary: true,
+          )),
+        ]),
+
+        // ── Charts with single toggle ──────────────────────────────
+        Row(children: [
+          Expanded(child: _subHeader('DURATION TRENDS')),
+          if (has4wData) Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: SegmentedButton<bool>(
+              selected: {_periodWk},
+              segments: const [
+                ButtonSegment(value: true, label: Text('7d')),
+                ButtonSegment(value: false, label: Text('4w')),
+              ],
+              onSelectionChanged: (s) => setState(() => _periodWk = s.first),
+              showSelectedIcon: false,
+              style: ButtonStyle(
+                padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0)),
+                minimumSize: WidgetStateProperty.all(const Size(0, 28)),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
+              ),
+            ),
+          ),
+        ]),
+
+        // Chart 1: total breast time per day
+        Text('Total breast time', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+        const SizedBox(height: 6),
+        _DurationBarChart(data: durData),
+        const SizedBox(height: 16),
+
+        // Chart 2: day vs night
+        Text('Day vs night', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+        const SizedBox(height: 6),
+        _DualLineChart(data: dnData),
+        const SizedBox(height: 16),
+
+        // Chart 3: avg session length
+        Text('Avg session length', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+        const SizedBox(height: 6),
+        _AvgSessionChart(data: avgSessData),
+
+        // ── Feed gap section ──────────────────────────────────────
         if (avgGapDay > 0 || avgGapNight > 0) ...[
           _subHeader('AVG FEED GAP (5D AVG)'),
           if (avgGapDay > 0)
@@ -285,12 +429,306 @@ class _FeedPanel extends StatelessWidget {
                 avgLabel: avgGapNightPrev > 0 ? 'prev ' + _fmtMins(avgGapNightPrev) : null,
                 extra: _gapTrendBadge(avgGapNight, avgGapNightPrev)),
         ],
+
+        // ── Wet diaper indicator ──────────────────────────────────
+        if (wetCount > 0) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: wetCount >= 6
+                  ? _kGreen.withOpacity(0.1)
+                  : wetCount >= 4
+                      ? _kAmber.withOpacity(0.1)
+                      : Colors.grey.withOpacity(0.08),
+            ),
+            child: Row(children: [
+              const Text('💧', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'Wet diapers today: $wetCount'
+                    + (wetCount >= 6 ? '  ✓ Good intake signal' : ''),
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500,
+                    color: wetCount >= 6 ? _kGreen
+                        : wetCount >= 4 ? _kAmber
+                        : Colors.grey.shade500),
+              )),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 3, left: 4),
+            child: Text('Used by lactation consultants as intake proxy',
+                style: TextStyle(
+                    fontSize: 10, color: Colors.grey.shade500,
+                    fontStyle: FontStyle.italic)),
+          ),
+        ],
       ]),
     );
   }
 }
 
-// ── Diaper panel ─────────────────────────────────────────────────
+// ── Feed panel chart sub-widgets ───────────────────────────────────
+
+class _StatBox extends StatelessWidget {
+  final String value, label;
+  final Color color;
+  final bool secondary;
+  const _StatBox(
+      {required this.value, required this.label, required this.color, required this.secondary});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg     = isDark ? const Color(0xFF1E2130) : Colors.white;
+    final border = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: bg,
+        border: Border.all(color: secondary ? border : color.withOpacity(0.3)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: secondary ? 18 : 22,
+                fontWeight: FontWeight.bold,
+                color: secondary ? Colors.grey.shade500 : color)),
+        const SizedBox(height: 2),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+      ]),
+    );
+  }
+}
+
+class _DashedLinePainter extends CustomPainter {
+  final double yFromBottom;
+  final Color color;
+  const _DashedLinePainter({required this.yFromBottom, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height - yFromBottom;
+    if (y < 0 || y > size.height) return;
+    final paint = Paint()..color = color..strokeWidth = 1;
+    const dash = 5.0, gap = 4.0;
+    var x = 0.0;
+    while (x < size.width) {
+      canvas.drawLine(
+          Offset(x, y), Offset((x + dash).clamp(0.0, size.width), y), paint);
+      x += dash + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedLinePainter old) =>
+      old.yFromBottom != yFromBottom || old.color != color;
+}
+
+class _DurationBarChart extends StatelessWidget {
+  final List<({String label, int minutes})> data;
+  const _DurationBarChart({required this.data});
+
+  static const _barAreaH = 80.0;
+  static const _maxBarH  = 52.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.isEmpty) return const SizedBox.shrink();
+    final maxV = data
+        .map((d) => d.minutes)
+        .reduce((a, b) => a > b ? a : b)
+        .clamp(1, 99999)
+        .toDouble();
+    final avgV = data.fold(0.0, (s, d) => s + d.minutes) / data.length;
+
+    return Column(children: [
+      SizedBox(
+        height: _barAreaH,
+        child: Stack(children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: data.asMap().entries.map((entry) {
+              final isLast = entry.key == data.length - 1;
+              final d = entry.value;
+              final barH = d.minutes > 0
+                  ? (d.minutes / maxV * _maxBarH).clamp(2.0, _maxBarH)
+                  : 0.0;
+              return Expanded(
+                child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  if (d.minutes > 0)
+                    Text(_fmtMins(d.minutes),
+                        style: TextStyle(fontSize: 7, color: Colors.grey.shade500)),
+                  const SizedBox(height: 2),
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    height: barH,
+                    decoration: BoxDecoration(
+                      color: isLast ? _kOrange : _kOrange.withOpacity(0.4),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                ]),
+              );
+            }).toList(),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _DashedLinePainter(
+                yFromBottom: avgV > 0 ? (avgV / maxV * _maxBarH + 2) : -1,
+                color: _kOrange.withOpacity(0.55),
+              ),
+            ),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 2),
+      Row(
+        children: data.map((d) => Expanded(
+          child: Text(d.label,
+              style: TextStyle(fontSize: 7, color: Colors.grey.shade600),
+              textAlign: TextAlign.center),
+        )).toList(),
+      ),
+    ]);
+  }
+}
+
+class _LinePainter extends CustomPainter {
+  final List<double> vals1;
+  final Color color1;
+  final List<double>? vals2;
+  final Color? color2;
+  _LinePainter({required this.vals1, required this.color1, this.vals2, this.color2});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (vals1.isEmpty) return;
+    final all = [...vals1, if (vals2 != null) ...vals2!];
+    final maxV = all.reduce((a, b) => a > b ? a : b).clamp(1.0, double.infinity);
+    final n = vals1.length;
+    const padH = 4.0, padV = 10.0;
+    final w = size.width - 2 * padH;
+    final h = size.height - 2 * padV;
+
+    Offset pt(int i, double v) => Offset(
+      n <= 1 ? size.width / 2 : padH + i * w / (n - 1),
+      padV + h * (1 - v / maxV),
+    );
+
+    void drawLine(List<double> vals, Color color) {
+      final strokePaint = Paint()
+        ..color = color
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      final path = Path();
+      for (int i = 0; i < vals.length; i++) {
+        final p = pt(i, vals[i]);
+        if (i == 0) { path.moveTo(p.dx, p.dy); } else { path.lineTo(p.dx, p.dy); }
+      }
+      canvas.drawPath(path, strokePaint);
+      final dotPaint = Paint()..color = color..style = PaintingStyle.fill;
+      for (int i = 0; i < vals.length; i++) {
+        canvas.drawCircle(pt(i, vals[i]), 3, dotPaint);
+      }
+    }
+
+    if (vals2 != null) { drawLine(vals2!, color2 ?? Colors.grey); }
+    drawLine(vals1, color1);
+  }
+
+  @override
+  bool shouldRepaint(_LinePainter old) => true;
+}
+
+class _DualLineChart extends StatelessWidget {
+  final List<({String label, int dayMin, int nightMin})> data;
+  const _DualLineChart({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.isEmpty) return const SizedBox.shrink();
+    return Column(children: [
+      SizedBox(
+        height: 90,
+        child: CustomPaint(
+          painter: _LinePainter(
+            vals1: data.map((d) => d.dayMin.toDouble()).toList(),
+            color1: _kOrange,
+            vals2: data.map((d) => d.nightMin.toDouble()).toList(),
+            color2: _kIndigo,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+      const SizedBox(height: 2),
+      Row(
+        children: data.map((d) => Expanded(
+          child: Text(d.label,
+              style: TextStyle(fontSize: 7, color: Colors.grey.shade600),
+              textAlign: TextAlign.center),
+        )).toList(),
+      ),
+      const SizedBox(height: 6),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        _LegendDot(color: _kOrange, label: 'Day (6am–10pm)'),
+        const SizedBox(width: 14),
+        _LegendDot(color: _kIndigo, label: 'Night (10pm–6am)'),
+      ]),
+    ]);
+  }
+}
+
+class _AvgSessionChart extends StatelessWidget {
+  final List<({String label, double val})> data;
+  const _AvgSessionChart({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.isEmpty) return const SizedBox.shrink();
+    return Column(children: [
+      SizedBox(
+        height: 80,
+        child: CustomPaint(
+          painter: _LinePainter(
+            vals1: data.map((d) => d.val).toList(),
+            color1: _kOrange,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+      const SizedBox(height: 2),
+      Row(
+        children: data.map((d) => Expanded(
+          child: Text(d.label,
+              style: TextStyle(fontSize: 7, color: Colors.grey.shade600),
+              textAlign: TextAlign.center),
+        )).toList(),
+      ),
+    ]);
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendDot({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(
+        width: 8, height: 8,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
+    const SizedBox(width: 4),
+    Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+  ]);
+}
+
+// ── Diaper panel ──────────────────────────────────────────────────
 
 class _DiaperPanel extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -322,171 +760,4 @@ class _DiaperPanel extends StatelessWidget {
       ]),
     );
   }
-}
-
-// ── Pump panel ───────────────────────────────────────────────────
-
-class _PumpPanel extends StatefulWidget {
-  final Map<String, dynamic> data;
-  final FirestoreService service;
-  final bool isDark;
-  const _PumpPanel({required this.data, required this.service, required this.isDark});
-  @override
-  State<_PumpPanel> createState() => _PumpPanelState();
-}
-
-class _PumpPanelState extends State<_PumpPanel> {
-  List<Map<String, dynamic>> _stock = [];
-  bool _stockLoading = true;
-
-  @override
-  void initState() { super.initState(); _load(); }
-
-  Future<void> _load() async {
-    final s = await widget.service.getAvailableStock();
-    if (mounted) setState(() { _stock = s; _stockLoading = false; });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final avgPumped  = widget.data['avgPumpedPerDay'] as double;
-    final avgUsed    = widget.data['avgUsedPerDay']   as double;
-    final recentUsage = widget.data['recentUsage'] as List;
-    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-    const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
-    const storageOrder = ['room', 'fridge', 'freezer'];
-
-    // Cumulative ml by storage
-    final storageMap = <String, int>{};
-    final bottleCount = <String, int>{};
-    for (final u in _stock) {
-      final p = u['event'] as BabyEvent;
-      final storage = p.storage ?? 'room';
-      storageMap[storage] = (storageMap[storage] ?? 0) + (u['remaining'] as int);
-      bottleCount[storage] = (bottleCount[storage] ?? 0) + 1;
-    }
-
-    // Stock items sorted newest first
-    final sorted = [..._stock]..sort((a, b) =>
-        (b['event'] as BabyEvent).startTime.compareTo((a['event'] as BabyEvent).startTime));
-
-    // Fully used in last 2 days
-    final fullyUsed = recentUsage.where((u) =>
-        (u['fullyUsed'] as bool) &&
-        (u['pumpedAt'] as DateTime).isAfter(twoDaysAgo)).toList();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-        // Avgs at top
-        _subHeader('5-DAY AVERAGES'),
-        Row(children: [
-          _Pill(label: 'Pumped/day',
-              value: avgPumped >= 0 ? avgPumped.round().toString() + 'ml' : '0ml',
-              color: kPumpColor2),
-          const SizedBox(width: 10),
-          _Pill(label: 'Used/day',
-              value: avgUsed >= 0 ? avgUsed.round().toString() + 'ml' : '0ml',
-              color: Colors.orange),
-        ]),
-
-        // Cumulative stock
-        _subHeader('STOCK'),
-        if (_stockLoading)
-          const SizedBox(height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-        else if (storageMap.isEmpty)
-          Text('No stock', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
-        else ...[
-          ...storageOrder.where((s) => storageMap.containsKey(s)).map((s) {
-            final bc = bottleCount[s] ?? 0;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(children: [
-                Text(storageEmoji[s] ?? '', style: const TextStyle(fontSize: 18)),
-                const SizedBox(width: 6),
-                Text(storageMap[s].toString() + 'ml',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                const SizedBox(width: 6),
-                Text('(' + bc.toString() + ' bottle' + (bc == 1 ? '' : 's') + ')',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-              ]),
-            );
-          }),
-          const SizedBox(height: 6),
-          // Individual bottles
-          ...sorted.map((u) {
-            final p = u['event'] as BabyEvent;
-            final rem = u['remaining'] as int;
-            final used = u['used'] as int;
-            final isPartial = used > 0;
-            final id = p.pumpId ?? '—';
-            final emoji = storageEmoji[p.storage ?? 'room'] ?? '🏠';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Row(children: [
-                Text(emoji + ' #' + id,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                const SizedBox(width: 6),
-                Text(rem.toString() + 'ml',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                if (isPartial) ...[
-                  const SizedBox(width: 4),
-                  Text('(' + used.toString() + 'ml used)',
-                      style: const TextStyle(fontSize: 11, color: _kAmber)),
-                ],
-                const Spacer(),
-                if (p.expiresAt != null)
-                  Text('exp ' + _fmtDate(p.expiresAt!),
-                      style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-              ]),
-            );
-          }),
-        ],
-
-        // Recently fully used
-        if (fullyUsed.isNotEmpty) ...[
-          _subHeader('RECENTLY FULLY USED'),
-          ...fullyUsed.map((u) {
-            final pumpedAt = u['pumpedAt'] as DateTime;
-            final pumpedMl = u['pumpedMl'] as int;
-            final id = u['pumpId']?.toString() ?? '—';
-            final storage = u['storage'] as String? ?? 'room';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Row(children: [
-                Text((storageEmoji[storage] ?? '') + ' #' + id,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                const SizedBox(width: 6),
-                Text(pumpedMl.toString() + 'ml used',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-                const Spacer(),
-                Text(_fmtDate(pumpedAt),
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-              ]),
-            );
-          }),
-        ],
-      ]),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String label, value;
-  final Color color;
-  const _Pill({required this.label, required this.value, required this.color});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-    decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        color: color.withOpacity(0.1),
-        border: Border.all(color: color.withOpacity(0.3))),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(value, style: TextStyle(
-          fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-      Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-    ]),
-  );
 }
