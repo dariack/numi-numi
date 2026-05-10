@@ -153,7 +153,6 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
   DateTime? _birthDate;
   List<BabyEvent> _allEvents = [];
   int _selectedNightOffset = 1;
-  late final PageController _nightPageController = PageController();
   // Per-graph period toggle (true = 7-day, false = 4-week)
   bool _nightStretchWk = true;
 
@@ -165,7 +164,6 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
 
   @override
   void dispose() {
-    _nightPageController.dispose();
     super.dispose();
   }
 
@@ -501,169 +499,179 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
     }
 
     // ── Reusable tab content builders ─────────────────────────────────
-    Widget nightTab() => Column(children: [
-      // Page indicator dots
-      Padding(
-        padding: const EdgeInsets.only(top: 10, bottom: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(3, (i) => Container(
-            width: _selectedNightOffset == i + 1 ? 16 : 6,
-            height: 6,
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              color: _selectedNightOffset == i + 1 ? _kIndigo : Colors.grey.shade700,
+    Widget nightTab() {
+      final offset  = _selectedNightOffset;
+      final baseOff = now.hour < 8 ? offset + 1 : offset;
+      final pgBase  = DateTime(now.year, now.month, now.day - baseOff);
+      final pgNight  = _nightWindow(pgBase);
+      final pgStrict = _strictNightWindow(pgBase);
+      final pgGaps       = _inferNightSleep(actionEvents, pgNight.start,  pgNight.end,  gapMin);
+      final pgStrictGaps = _inferNightSleep(actionEvents, pgStrict.start, pgStrict.end, gapMin);
+      final pgEvents = actionEvents
+          .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
+          .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+      final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
+      final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
+      final pgEveStart = DateTime(pgBase.year, pgBase.month, pgBase.day, 18);
+      final pgEveEnd   = DateTime(pgBase.year, pgBase.month, pgBase.day, 22);
+      final pgEveFeeds = feedEvents.where((e) => !e.startTime.isBefore(pgEveStart) && e.startTime.isBefore(pgEveEnd)).toList();
+      int pgEveBreastMin = 0; int pgEveMl = 0;
+      for (final f in pgEveFeeds) {
+        if (f.source == 'pump') {
+          int ml = f.mlFed ?? 0;
+          if (ml == 0 && f.linkedPumps != null) {
+            try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
+          }
+          pgEveMl += ml;
+        } else {
+          pgEveBreastMin += f.durationMinutes ?? 0;
+        }
+      }
+      final pgEveParts = [if (pgEveBreastMin > 0) _fmtHm(pgEveBreastMin), if (pgEveMl > 0) '${pgEveMl}ml'];
+      final pgEveValue = pgEveFeeds.isEmpty ? '--' : pgEveParts.isNotEmpty ? pgEveParts.join('+') : '${pgEveFeeds.length}×';
+      final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
+
+      // Build night log
+      final List<Widget> pgNarrativeWidgets = [];
+      if (pgEvents.isNotEmpty || pgGaps.isNotEmpty) {
+        final sortedEvs = [...pgEvents]..sort((a, b) => a.startTime.compareTo(b.startTime));
+        final pgSessions = <List<BabyEvent>>[];
+        for (final e in sortedEvs) {
+          if (pgSessions.isEmpty || e.startTime.difference(pgSessions.last.last.startTime).inMinutes > 30) {
+            pgSessions.add([e]);
+          } else {
+            pgSessions.last.add(e);
+          }
+        }
+        final pgTimeline = <({DateTime time, bool isSleep, String text})>[];
+        for (final gap in pgGaps) {
+          pgTimeline.add((time: gap.start, isSleep: true, text: 'slept for ${_fmtHm(gap.minutes)}'));
+        }
+        for (final session in pgSessions) {
+          final feeds   = session.where((e) => e.type == EventType.feed).toList();
+          final diapers = session.where((e) => e.type == EventType.diaper).toList();
+          int breastMin = 0; int pumpMl = 0;
+          for (final f in feeds) {
+            if (f.source == 'pump') {
+              int ml = f.mlFed ?? 0;
+              if (ml == 0 && f.linkedPumps != null) {
+                try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
+              }
+              pumpMl += ml;
+            } else {
+              breastMin += f.durationMinutes ?? 0;
+            }
+          }
+          final parts = <String>[];
+          if (feeds.isNotEmpty) {
+            final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
+            parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
+          }
+          if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
+          if (parts.isNotEmpty) {
+            pgTimeline.add((time: session.first.startTime, isSleep: false, text: parts.join('  ·  ')));
+          }
+        }
+        pgTimeline.sort((a, b) {
+          final cmp = a.time.compareTo(b.time);
+          if (cmp != 0) return cmp;
+          if (!a.isSleep && b.isSleep) return -1;
+          if (a.isSleep && !b.isSleep) return 1;
+          return 0;
+        });
+        bool nightDividerAdded = false;
+        for (final entry in pgTimeline) {
+          final h = entry.time.hour;
+          final isEvening = h >= 18 && h < 22;
+          if (!isEvening && !nightDividerAdded) {
+            nightDividerAdded = true;
+            if (pgNarrativeWidgets.isNotEmpty) {
+              pgNarrativeWidgets.add(const _PeriodDivider(label: '🌙 Night'));
+            }
+          }
+          pgNarrativeWidgets.add(_NarrativeRow(
+              time: _fmtTime(entry.time), text: entry.text,
+              isSleep: entry.isSleep, isEvening: isEvening));
+        }
+      }
+
+      return Column(children: [
+        // ── Night picker row ──────────────────────────────────────
+        Container(
+          decoration: BoxDecoration(
+            color: _kIndigo.withOpacity(0.06),
+            border: Border(bottom: BorderSide(color: _kIndigo.withOpacity(0.12))),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(children: [
+            IconButton(
+              icon: Icon(Icons.chevron_left,
+                  color: offset < 3 ? _kIndigo : Colors.grey.shade600),
+              onPressed: offset < 3 ? () {
+                HapticFeedback.lightImpact();
+                setState(() => _selectedNightOffset++);
+              } : null,
             ),
-          )),
+            Expanded(child: Text(
+              '$pgLabel · ${_fmtDate(pgBase)}',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            )),
+            IconButton(
+              icon: Icon(Icons.chevron_right,
+                  color: offset > 1 ? _kIndigo : Colors.grey.shade600),
+              onPressed: offset > 1 ? () {
+                HapticFeedback.lightImpact();
+                setState(() => _selectedNightOffset--);
+              } : null,
+            ),
+          ]),
         ),
-      ),
-      Expanded(
-        child: PageView.builder(
-          controller: _nightPageController,
-          itemCount: 3,
-          onPageChanged: (i) { HapticFeedback.lightImpact(); setState(() => _selectedNightOffset = i + 1); },
-          itemBuilder: (context, pageIndex) {
-            final offset = pageIndex + 1;
-            final baseOff = now.hour < 8 ? offset + 1 : offset;
-            final pgBase = DateTime(now.year, now.month, now.day - baseOff);
-            final pgNight = _nightWindow(pgBase);
-            final pgStrict = _strictNightWindow(pgBase);
-            final pgGaps = _inferNightSleep(actionEvents, pgNight.start, pgNight.end, gapMin);
-            final pgStrictGaps = _inferNightSleep(actionEvents, pgStrict.start, pgStrict.end, gapMin);
-            final pgEvents = actionEvents
-                .where((e) => !e.startTime.isBefore(pgNight.start) && !e.startTime.isAfter(pgNight.end))
-                .toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
-            final pgLongest = pgGaps.isEmpty ? 0 : pgGaps.map((g) => g.minutes).reduce((a, b) => a > b ? a : b);
-            final pgWakings = (pgStrictGaps.length - 1).clamp(0, 99);
-            final pgEveStart = DateTime(pgBase.year, pgBase.month, pgBase.day, 18);
-            final pgEveEnd = DateTime(pgBase.year, pgBase.month, pgBase.day, 22);
-            final pgEveFeeds = feedEvents.where((e) => !e.startTime.isBefore(pgEveStart) && e.startTime.isBefore(pgEveEnd)).toList();
-            int pgEveBreastMin = 0; int pgEveMl = 0;
-            for (final f in pgEveFeeds) {
-              if (f.source == 'pump') {
-                int ml = f.mlFed ?? 0;
-                if (ml == 0 && f.linkedPumps != null) {
-                  try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
-                }
-                pgEveMl += ml;
-              } else {
-                pgEveBreastMin += f.durationMinutes ?? 0;
-              }
-            }
-            final pgEveParts = [if (pgEveBreastMin > 0) _fmtHm(pgEveBreastMin), if (pgEveMl > 0) '${pgEveMl}ml'];
-            final pgEveValue = pgEveFeeds.isEmpty ? '--' : pgEveParts.isNotEmpty ? pgEveParts.join('+') : '${pgEveFeeds.length}×';
-            final pgLabel = offset == 1 ? 'Last night' : '$offset nights ago';
-
-            // Per-page night log
-            final List<Widget> pgNarrativeWidgets = [];
-            if (pgEvents.isNotEmpty || pgGaps.isNotEmpty) {
-              final sortedEvs = [...pgEvents]..sort((a, b) => a.startTime.compareTo(b.startTime));
-              final pgSessions = <List<BabyEvent>>[];
-              for (final e in sortedEvs) {
-                if (pgSessions.isEmpty || e.startTime.difference(pgSessions.last.last.startTime).inMinutes > 30) {
-                  pgSessions.add([e]);
-                } else {
-                  pgSessions.last.add(e);
-                }
-              }
-              final pgTimeline = <({DateTime time, bool isSleep, String text})>[];
-              for (final gap in pgGaps) {
-                pgTimeline.add((time: gap.start, isSleep: true, text: 'slept for ${_fmtHm(gap.minutes)}'));
-              }
-              for (final session in pgSessions) {
-                final feeds = session.where((e) => e.type == EventType.feed).toList();
-                final diapers = session.where((e) => e.type == EventType.diaper).toList();
-                int breastMin = 0; int pumpMl = 0;
-                for (final f in feeds) {
-                  if (f.source == 'pump') {
-                    int ml = f.mlFed ?? 0;
-                    if (ml == 0 && f.linkedPumps != null) {
-                      try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
-                    }
-                    pumpMl += ml;
-                  } else {
-                    breastMin += f.durationMinutes ?? 0;
-                  }
-                }
-                final parts = <String>[];
-                if (feeds.isNotEmpty) {
-                  final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
-                  parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
-                }
-                if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
-                if (parts.isNotEmpty) {
-                  pgTimeline.add((time: session.first.startTime, isSleep: false, text: parts.join('  ·  ')));
-                }
-              }
-              pgTimeline.sort((a, b) {
-                final cmp = a.time.compareTo(b.time);
-                if (cmp != 0) return cmp;
-                if (!a.isSleep && b.isSleep) return -1;
-                if (a.isSleep && !b.isSleep) return 1;
-                return 0;
-              });
-              bool nightDividerAdded = false;
-              for (final entry in pgTimeline) {
-                final h = entry.time.hour;
-                final isEvening = h >= 18 && h < 22;
-                if (!isEvening && !nightDividerAdded) {
-                  nightDividerAdded = true;
-                  if (pgNarrativeWidgets.isNotEmpty) {
-                    pgNarrativeWidgets.add(const _PeriodDivider(label: '🌙 Night'));
-                  }
-                }
-                pgNarrativeWidgets.add(_NarrativeRow(
-                    time: _fmtTime(entry.time), text: entry.text,
-                    isSleep: entry.isSleep, isEvening: isEvening));
-              }
-            }
-
-            return RefreshIndicator(
-              onRefresh: _load,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('$pgLabel · ${_fmtDate(pgBase)}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  if (pgEvents.isEmpty && pgGaps.isEmpty)
-                    Text('No data for this night.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
-                  else ...[
-                    IntrinsicHeight(
-                      child: Row(children: [
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
-                        const SizedBox(width: 8),
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌆', value: pgEveValue, label: 'Eve feeds', sub: '18–22h', color: _kOrange)),
-                        const SizedBox(width: 8),
-                        Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
-                      ]),
-                    ),
-                    const SizedBox(height: 10),
-                    _NightTimeline(
-                      cardBg: cardBg,
-                      nightStart: pgNight.start,
-                      nightEnd: pgNight.end,
-                      strictStart: pgStrict.start,
-                      events: pgEvents,
-                      gaps: pgGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
-                    ),
-                    const SizedBox(height: 6),
-                    _Blurb('Gaps >${gapMin}min inferred as sleep · swipe to compare nights'),
-                    if (pgNarrativeWidgets.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      _SectionLabel('📋 Night Log'),
-                      _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: pgNarrativeWidgets)),
-                    ],
+        // ── Night content ─────────────────────────────────────────
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (pgEvents.isEmpty && pgGaps.isEmpty)
+                  Text('No data for this night.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+                else ...[
+                  IntrinsicHeight(
+                    child: Row(children: [
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '💤', value: pgLongest > 0 ? _fmtHm(pgLongest) : '--', label: 'Longest stretch', color: _kIndigo)),
+                      const SizedBox(width: 8),
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '🌆', value: pgEveValue, label: 'Eve feeds', sub: '18–22h', color: _kOrange)),
+                      const SizedBox(width: 8),
+                      Expanded(child: _StatCard(cardBg: cardBg, emoji: '👶', value: '$pgWakings', label: 'Wakings', color: _kIndigo)),
+                    ]),
+                  ),
+                  const SizedBox(height: 10),
+                  _NightTimeline(
+                    cardBg: cardBg,
+                    nightStart: pgNight.start,
+                    nightEnd: pgNight.end,
+                    strictStart: pgStrict.start,
+                    events: pgEvents,
+                    gaps: pgGaps.map((g) => (start: g.start, end: g.end, minutes: g.minutes)).toList(),
+                  ),
+                  const SizedBox(height: 6),
+                  _Blurb('Gaps >${gapMin}min inferred as sleep'),
+                  if (pgNarrativeWidgets.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _SectionLabel('📋 Night Log'),
+                    _Card(cardBg: cardBg, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: pgNarrativeWidgets)),
                   ],
-                ]),
-              ),
-            );
-          },
+                ],
+              ]),
+            ),
+          ),
         ),
-      ),
-    ]);
+      ]);
+    }
 
     final dnChartData = _nightStretchWk ? days7DayNight : weeks4DayNight;
 
