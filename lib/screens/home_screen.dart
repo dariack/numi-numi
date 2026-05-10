@@ -78,9 +78,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadBirthDate();
     _loadDismissedReminders();
     _deviceNamesSub = widget.service.deviceNamesStream().listen((names) {
-      if (mounted) setState(() => _deviceNames
-        ..clear()
-        ..addAll(names));
+      if (mounted) setState(() {
+        _deviceNames..clear()..addAll(names);
+        if (_myDeviceId != null) _myCaregiverName = names[_myDeviceId] ?? '';
+      });
     });
     // Tick timer is set up in _subscribeMedicines (60s interval)
   }

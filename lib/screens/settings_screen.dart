@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/settings_service.dart';
 import '../services/widget_service.dart';
 import '../services/reminder_service.dart';
@@ -34,6 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _widgetSlots = ['feed', 'diaper'];
   DateTime? _birthDate;
   ReminderSettings _reminders = const ReminderSettings();
+  String _deviceId = '';
+  final TextEditingController _nameCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -41,17 +44,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final s        = await widget.settingsService.get();
-    final slots    = await WidgetService.getWidgetSlots();
-    final bd       = await widget.settingsService.getBirthDate();
+    final prefs     = await SharedPreferences.getInstance();
+    final deviceId  = prefs.getString('device_id') ?? '';
+    final s         = await widget.settingsService.get();
+    final slots     = await WidgetService.getWidgetSlots();
+    final bd        = await widget.settingsService.getBirthDate();
     final reminders = await widget.reminderService?.loadSettings() ?? const ReminderSettings();
+    final name      = deviceId.isNotEmpty
+        ? await widget.settingsService.loadCaregiverName(deviceId) ?? ''
+        : '';
     if (mounted) {
       setState(() {
+        _deviceId = deviceId;
+        _nameCtrl.text = name;
         _settings = s; _widgetSlots = slots; _birthDate = bd; _reminders = reminders;
         _loading = false;
       });
     }
+  }
+
+  Future<void> _saveName(String name) async {
+    if (_deviceId.isEmpty) return;
+    await widget.settingsService.saveCaregiverName(_deviceId, name.trim());
   }
 
   Future<void> _updateReminders(ReminderSettings updated) async {
@@ -307,6 +328,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       card(child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Text('🙋', style: TextStyle(fontSize: 20)),
+            const SizedBox(width: 12),
+            Expanded(child: TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Your name',
+                hintText: 'e.g. Mom, Dad, Grandma',
+                isDense: true,
+                border: InputBorder.none,
+                labelStyle: TextStyle(fontSize: 13),
+              ),
+              style: const TextStyle(fontSize: 13),
+              textCapitalization: TextCapitalization.words,
+              onSubmitted: (v) { HapticFeedback.lightImpact(); _saveName(v); },
+              onEditingComplete: () { HapticFeedback.lightImpact(); _saveName(_nameCtrl.text); },
+            )),
+            TextButton(
+              onPressed: () { HapticFeedback.lightImpact(); _saveName(_nameCtrl.text);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Name saved'), duration: Duration(seconds: 2)));
+              },
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              child: const Text('Save', style: TextStyle(fontSize: 13)),
+            ),
+          ]),
+          Text('Shown when your partner sees your activity',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 14),
           Row(children: [
             const Text('👨‍👩‍👧', style: TextStyle(fontSize: 20)),
             const SizedBox(width: 12),
