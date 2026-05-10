@@ -456,22 +456,21 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       for (final session in sessions) {
         final feeds = session.where((e) => e.type == EventType.feed).toList();
         final diapers = session.where((e) => e.type == EventType.diaper).toList();
-        int breastMin = 0; int pumpMl = 0;
+        var totalFeedMin = 0;
         for (final f in feeds) {
           if (f.source == 'pump') {
             int ml = f.mlFed ?? 0;
             if (ml == 0 && f.linkedPumps != null) {
               try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
             }
-            pumpMl += ml;
+            totalFeedMin += ml ~/ 3;
           } else {
-            breastMin += f.durationMinutes ?? 0;
+            totalFeedMin += f.durationMinutes ?? 0;
           }
         }
         final parts = <String>[];
         if (feeds.isNotEmpty) {
-          final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
-          parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
+          parts.add('🍼 ${totalFeedMin > 0 ? _fmtHm(totalFeedMin) : '${feeds.length}×'}');
         }
         if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
         if (parts.isNotEmpty) {
@@ -550,22 +549,21 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         for (final session in pgSessions) {
           final feeds   = session.where((e) => e.type == EventType.feed).toList();
           final diapers = session.where((e) => e.type == EventType.diaper).toList();
-          int breastMin = 0; int pumpMl = 0;
+          var totalFeedMin = 0;
           for (final f in feeds) {
             if (f.source == 'pump') {
               int ml = f.mlFed ?? 0;
               if (ml == 0 && f.linkedPumps != null) {
                 try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
               }
-              pumpMl += ml;
+              totalFeedMin += ml ~/ 3;
             } else {
-              breastMin += f.durationMinutes ?? 0;
+              totalFeedMin += f.durationMinutes ?? 0;
             }
           }
           final parts = <String>[];
           if (feeds.isNotEmpty) {
-            final fParts = [if (breastMin > 0) _fmtHm(breastMin), if (pumpMl > 0) '${pumpMl}ml'];
-            parts.add('🍼 ${fParts.isNotEmpty ? fParts.join('+') : '${feeds.length}×'}');
+            parts.add('🍼 ${totalFeedMin > 0 ? _fmtHm(totalFeedMin) : '${feeds.length}×'}');
           }
           if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
           if (parts.isNotEmpty) {
