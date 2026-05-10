@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _dismissedReminders = {};
   final Set<String> _dismissedSuggestions = {};
   final Set<String> _dismissedStripEventIds = {};
+  final Set<String> _dismissedPumpWarnings = {};
   bool _partnerInitialized = false; // skip notification on first stream emission
   List<BabyEvent> _events = [];
   Map<String, dynamic> _stats = {};
@@ -75,12 +76,38 @@ class _HomeScreenState extends State<HomeScreen> {
     _subscribeMedicines();
     _loadDeviceId();
     _loadBirthDate();
+    _loadDismissedReminders();
     _deviceNamesSub = widget.service.deviceNamesStream().listen((names) {
       if (mounted) setState(() => _deviceNames
         ..clear()
         ..addAll(names));
     });
     // Tick timer is set up in _subscribeMedicines (60s interval)
+  }
+
+  Future<void> _loadDismissedReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('dismissed_med_reminders') ?? [];
+    // Prune keys that are more than 35 days old (year_month_day prefix)
+    final now = DateTime.now();
+    final fresh = saved.where((key) {
+      final parts = key.split('_');
+      // Key format: medId_slot_day_month — medId may itself contain underscores,
+      // so read day/month from the last two segments.
+      if (parts.length < 4) return false;
+      final month = int.tryParse(parts[parts.length - 1]);
+      final day   = int.tryParse(parts[parts.length - 2]);
+      if (month == null || day == null) return true; // keep if unparseable
+      // Keep if within the last 35 days (handles month-boundary edge cases)
+      final keyDate = DateTime(now.year, month <= now.month ? now.year : now.year - 1, month, day);
+      return now.difference(keyDate).inDays <= 35;
+    }).toList();
+    if (mounted) setState(() => _dismissedReminders.addAll(fresh));
+  }
+
+  Future<void> _persistDismissedReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('dismissed_med_reminders', _dismissedReminders.toList());
   }
 
   static const _affirmations = [
@@ -623,6 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onDismissed: (_) {
                     HapticFeedback.lightImpact();
                     setState(() => _dismissedReminders.add(dismissKey));
+                    _persistDismissedReminders();
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -661,6 +689,66 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Icon(Icons.check, size: 14, color: borderCol),
                         ),
                       ),
+                    ]),
+                  ),
+                ),
+              );
+            }).toList()),
+          );
+        }),
+
+        // ── 3b. Pump expiry warnings ─────────────────────────────
+        Builder(builder: (_) {
+          final visible = expirationWarnings
+              .where((w) => !_dismissedPumpWarnings.contains((w['event'] as BabyEvent).id))
+              .toList();
+          if (visible.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Column(children: visible.map((w) {
+              final p = w['event'] as BabyEvent;
+              final urgency = w['urgency'] as String;
+              final timeLeft = w['timeLeft'] as Duration;
+              final color = urgency == 'critical' ? Colors.red
+                  : urgency == 'warning' ? Colors.orange : Colors.amber;
+              final storage = p.storage ?? 'room';
+              final storageLabel = storage == 'fridge' ? 'fridge'
+                  : storage == 'freezer' ? 'freezer' : 'room temp';
+              final advice = storage == 'room'
+                  ? ' — use or refrigerate'
+                  : storage == 'fridge'
+                      ? ' — use soon'
+                      : '';
+              final mlStr = p.ml != null ? '${p.ml}ml ' : '';
+              final idStr = p.pumpId != null ? ' #${p.pumpId}' : '';
+              final label = '${mlStr}pump milk$idStr · $storageLabel · expires in ${_fmt(timeLeft)}$advice';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Dismissible(
+                  key: Key('pump_exp_${p.id}'),
+                  direction: DismissDirection.horizontal,
+                  background: _DismissBg(align: Alignment.centerLeft),
+                  secondaryBackground: _DismissBg(align: Alignment.centerRight),
+                  onDismissed: (_) {
+                    HapticFeedback.lightImpact();
+                    setState(() => _dismissedPumpWarnings.add(p.id));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: color.withOpacity(0.1),
+                      border: Border.all(color: color.withOpacity(0.5)),
+                    ),
+                    child: Row(children: [
+                      const Text('🥛', style: TextStyle(fontSize: 13)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(
+                        label,
+                        style: TextStyle(fontSize: 12, color: color.withOpacity(0.9)),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      )),
                     ]),
                   ),
                 ),
@@ -747,38 +835,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Colors.grey.shade500,
                               letterSpacing: 0.5)),
                       const SizedBox(height: 10),
-
-                      // Expiration warnings
-                      ...expirationWarnings.map((w) {
-                        final p = w['event'] as BabyEvent;
-                        final urgency = w['urgency'] as String;
-                        final timeLeft = w['timeLeft'] as Duration;
-                        final color = urgency == 'critical'
-                            ? Colors.red
-                            : urgency == 'warning'
-                                ? Colors.orange
-                                : Colors.amber;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              color: color.withOpacity(0.1),
-                              border: Border.all(color: color)),
-                          child: Row(children: [
-                            Text(urgency == 'critical' ? '🚨' : '⚠️',
-                                style: const TextStyle(fontSize: 20)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                                child: Text(
-                                    '${p.readablePumpId} expires in ${_fmt(timeLeft)}',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: color))),
-                          ]),
-                        );
-                      }),
 
                       if (cfg.trackSleep) ...[
                         _MiniStat(
