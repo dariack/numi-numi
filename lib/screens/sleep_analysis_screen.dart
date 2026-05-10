@@ -488,8 +488,15 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         if (a.isSleep && !b.isSleep) return 1;
         return 0;
       });
+      bool _nightDivAdded = false;
       for (final entry in timeline) {
-        narrativeWidgets.add(_NarrativeRow(time: _fmtTime(entry.time), text: entry.text, isSleep: entry.isSleep));
+        final h = entry.time.hour;
+        final isEvening = h >= 18 && h < 22;
+        if (!isEvening && !_nightDivAdded) {
+          _nightDivAdded = true;
+          if (narrativeWidgets.isNotEmpty) narrativeWidgets.add(const _PeriodDivider(label: '🌙 Night'));
+        }
+        narrativeWidgets.add(_NarrativeRow(time: _fmtTime(entry.time), text: entry.text, isSleep: entry.isSleep, isEvening: isEvening));
       }
     }
 
@@ -596,8 +603,19 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
                 if (a.isSleep && !b.isSleep) return 1;
                 return 0;
               });
+              bool nightDividerAdded = false;
               for (final entry in pgTimeline) {
-                pgNarrativeWidgets.add(_NarrativeRow(time: _fmtTime(entry.time), text: entry.text, isSleep: entry.isSleep));
+                final h = entry.time.hour;
+                final isEvening = h >= 18 && h < 22;
+                if (!isEvening && !nightDividerAdded) {
+                  nightDividerAdded = true;
+                  if (pgNarrativeWidgets.isNotEmpty) {
+                    pgNarrativeWidgets.add(const _PeriodDivider(label: '🌙 Night'));
+                  }
+                }
+                pgNarrativeWidgets.add(_NarrativeRow(
+                    time: _fmtTime(entry.time), text: entry.text,
+                    isSleep: entry.isSleep, isEvening: isEvening));
               }
             }
 
@@ -1159,12 +1177,18 @@ class _MiniBarChart extends StatelessWidget {
 class _NarrativeRow extends StatelessWidget {
   final String time, text;
   final bool isSleep;
-  const _NarrativeRow({required this.time, required this.text, required this.isSleep});
+  final bool isEvening;
+  const _NarrativeRow({required this.time, required this.text, required this.isSleep, this.isEvening = false});
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+    final bg = isEvening
+        ? _kAmber.withOpacity(0.10)
+        : _kIndigo.withOpacity(0.07);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SizedBox(width: 44, child: Text(time, style: TextStyle(
           fontSize: 12, fontWeight: FontWeight.w600,
@@ -1179,6 +1203,25 @@ class _NarrativeRow extends StatelessWidget {
       ]),
     );
   }
+}
+
+class _PeriodDivider extends StatelessWidget {
+  final String label;
+  const _PeriodDivider({required this.label});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(children: [
+      Expanded(child: Divider(color: _kIndigo.withOpacity(0.25), height: 1)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Text(label, style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.w700,
+            color: _kIndigo, letterSpacing: 0.4)),
+      ),
+      Expanded(child: Divider(color: _kIndigo.withOpacity(0.25), height: 1)),
+    ]),
+  );
 }
 
 class _DashedLinePainter extends CustomPainter {
