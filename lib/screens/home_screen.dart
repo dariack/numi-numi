@@ -157,6 +157,20 @@ class _HomeScreenState extends State<HomeScreen> {
       onDone: () => entry.remove(),
     ));
     overlay.insert(entry);
+    _celebrationVibration();
+  }
+
+  void _celebrationVibration() {
+    // boom-boom · tap-tap-tap · tik-tik-tik-tik
+    HapticFeedback.heavyImpact();
+    Future.delayed(const Duration(milliseconds: 130), () => HapticFeedback.heavyImpact());
+    Future.delayed(const Duration(milliseconds: 370), () => HapticFeedback.mediumImpact());
+    Future.delayed(const Duration(milliseconds: 490), () => HapticFeedback.mediumImpact());
+    Future.delayed(const Duration(milliseconds: 610), () => HapticFeedback.mediumImpact());
+    Future.delayed(const Duration(milliseconds: 810), () => HapticFeedback.lightImpact());
+    Future.delayed(const Duration(milliseconds: 890), () => HapticFeedback.lightImpact());
+    Future.delayed(const Duration(milliseconds: 970), () => HapticFeedback.lightImpact());
+    Future.delayed(const Duration(milliseconds: 1050), () => HapticFeedback.lightImpact());
   }
 
   Future<void> _loadDeviceId() async {
