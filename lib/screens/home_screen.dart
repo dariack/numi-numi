@@ -37,7 +37,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<List<BabyEvent>>? _streamSub;
   String? _myDeviceId;
   String _myCaregiverName = '';
@@ -70,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _widgetService =
         WidgetService(firestore: widget.service, settings: widget.settings);
     _subscribeStream();
@@ -974,7 +975,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-subscribe so Firestore reconnects and we get the latest server state
+      _streamSub?.cancel();
+      _subscribeStream();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _streamSub?.cancel();
     _medicinesSub?.cancel();
     _deviceNamesSub?.cancel();
@@ -1009,7 +1021,12 @@ class _FeedStatCard extends StatelessWidget {
       '${t.hour.toString().padLeft(2, "0")}:${t.minute.toString().padLeft(2, "0")}';
 
   String _feedDetail(BabyEvent f) {
-    final endT = f.endTime ?? f.startTime;
+    // Use startTime+duration as the semantic end when duration was manually selected.
+    // endTime reflects when the user pressed "stop" (may be hours after actual feeding).
+    final dur = f.durationMinutes;
+    final endT = (dur != null && dur > 0 && f.source != 'pump')
+        ? f.startTime.add(Duration(minutes: dur))
+        : (f.endTime ?? f.startTime);
     final ago = _fmt(DateTime.now().difference(endT));
     final parts = <String>['(${_hhmm(f.startTime)}) $ago ago'];
     if (f.source == 'pump') {
@@ -1234,16 +1251,23 @@ class _PumpStockCard extends StatelessWidget {
                   }
                   const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
                   const order = ['room', 'fridge', 'freezer'];
+                  String feedsBySize(int ml) {
+                    final big = ml ~/ 110; final med = ml ~/ 80; final small = ml ~/ 50;
+                    final parts = <String>[];
+                    if (big > 0) parts.add('$big big');
+                    if (med > 0) parts.add('$med med');
+                    if (small > 0) parts.add('$small small');
+                    return parts.isEmpty ? '<1 feed' : parts.join(', ');
+                  }
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: order
                         .where((s) => storageMap.containsKey(s))
                         .map((s) {
                           final ml = storageMap[s]!;
-                          final portions = portionMap[s] ?? 0;
-                          final feeds = (ml / 90).round();
+                          final bags = portionMap[s] ?? 0;
                           return Text(
-                            '${storageEmoji[s] ?? '🏠'} ${ml}ml ($portions portion${portions == 1 ? '' : 's'}, ~$feeds feed${feeds == 1 ? '' : 's'})',
+                            '${storageEmoji[s] ?? '🏠'} ${ml}ml ($bags bag${bags == 1 ? '' : 's'}, ~${feedsBySize(ml)})',
                             style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                         })
                         .toList(),

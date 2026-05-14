@@ -77,7 +77,10 @@ class ReminderService {
     switch (event.type) {
       case EventType.feed:
         if (_current.feedEnabled) {
-          final feedEnd = event.endTime ?? event.startTime;
+          final dur = event.durationMinutes;
+          final feedEnd = (dur != null && dur > 0 && event.source != 'pump')
+              ? event.startTime.add(Duration(minutes: dur))
+              : (event.endTime ?? event.startTime);
           await NotificationService.instance
               .scheduleFeedReminder(feedEnd, _current);
         }

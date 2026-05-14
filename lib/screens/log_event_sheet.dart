@@ -216,7 +216,14 @@ class _LogEventSheetState extends State<LogEventSheet> {
   // ================================================================
   Widget _buildFeedWizard() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // 1. Source — first thing
+      // 1. When — first (consistent with other flows)
+      _label('WHEN?'),
+      const SizedBox(height: 8),
+      _whenChips(),
+
+      const SizedBox(height: 16),
+
+      // 2. Source
       _label('FEEDING FROM?'),
       const SizedBox(height: 8),
       Row(children: [
@@ -226,13 +233,6 @@ class _LogEventSheetState extends State<LogEventSheet> {
         Expanded(child: _ToggleBtn(emoji: '🥛', label: 'Pumped Milk', selected: _feedSource == 'pump',
           onTap: () => setState(() { _feedSource = 'pump'; _side = null; }))),
       ]),
-
-      const SizedBox(height: 16),
-
-      // 2. When
-      _label('WHEN?'),
-      const SizedBox(height: 8),
-      _whenChips(),
       if (_isNow && _feedSource != 'pump') ...[
         const SizedBox(height: 6),
         Text('Will be logged as ongoing', style: TextStyle(fontSize: 11, color: Colors.orange.shade400, fontStyle: FontStyle.italic)),
@@ -488,7 +488,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
       const SizedBox(height: 8),
       _whenChips(),
       const SizedBox(height: 16),
-      _label('WHAT WAS IN THE DIAPER?'),
+      _label('WHAT WAS IN THE DIAPER? (OPTIONAL)'),
       const SizedBox(height: 8),
       Row(children: [
         Expanded(child: _ToggleBtn(emoji: '💧', label: 'Pee', selected: _pee && !_poop,
@@ -501,10 +501,7 @@ class _LogEventSheetState extends State<LogEventSheet> {
             onTap: () => setState(() { _pee = true; _poop = true; }))),
       ]),
       const SizedBox(height: 20),
-      _SaveButton(label: 'Save', saving: _saving, onTap: () {
-        if (!_pee && !_poop) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select pee, poop, or both'))); return; }
-        _save();
-      }),
+      _SaveButton(label: 'Save', saving: _saving, onTap: _save),
     ]);
   }
 

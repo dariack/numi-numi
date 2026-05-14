@@ -4,6 +4,22 @@ import '../services/firestore_service.dart';
 
 const kPumpColor = Color(0xFFF472B6);
 
+// Feed size thresholds (ml)
+const _kSmallFeed = 50;
+const _kMediumFeed = 80;
+const _kBigFeed = 110;
+
+String _feedsBySize(int ml) {
+  final big = ml ~/ _kBigFeed;
+  final med = ml ~/ _kMediumFeed;
+  final small = ml ~/ _kSmallFeed;
+  final parts = <String>[];
+  if (big > 0) parts.add('$big big (${_kBigFeed}ml)');
+  if (med > 0) parts.add('$med med (${_kMediumFeed}ml)');
+  if (small > 0) parts.add('$small small (${_kSmallFeed}ml)');
+  return parts.isEmpty ? 'less than 1 small feed' : parts.join(', ');
+}
+
 class PumpScreen extends StatefulWidget {
   final FirestoreService service;
   const PumpScreen({super.key, required this.service});
@@ -39,6 +55,89 @@ class _PumpScreenState extends State<PumpScreen> {
     }
   }
 
+  Future<void> _markAsSpoiled(String pumpEventId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Mark as spoiled?'),
+        content: const Text('This will flag the milk as spoiled and remove it from stock.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Spoiled', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.service.markSpoiled(pumpEventId);
+      _load();
+    }
+  }
+
+  Future<void> _markAsUsed(Map u) async {
+    final pumpEventId = u['pumpEventId'] as String;
+    final pumpedMl = u['pumpedMl'] as int;
+    final remaining = u['remaining'] as int;
+    final mlToUse = remaining > 0 ? remaining : pumpedMl;
+
+    final selectedTime = await showModalBottomSheet<DateTime>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _MarkAsUsedSheet(pumpedMl: mlToUse),
+    );
+
+    if (selectedTime == null) return;
+
+    final linkedPumpsStr = '[{"id":"$pumpEventId","ml":$mlToUse}]';
+    await widget.service.addEvent(BabyEvent(
+      id: '',
+      type: EventType.feed,
+      startTime: selectedTime,
+      endTime: selectedTime,
+      durationMinutes: 0,
+      source: 'pump',
+      linkedPumps: linkedPumpsStr,
+      mlFed: mlToUse,
+      createdBy: 'pump-screen',
+    ));
+    _load();
+  }
+
+  Widget _actionMenu({
+    required BuildContext context,
+    required VoidCallback onUsed,
+    required VoidCallback onSpoiled,
+  }) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: PopupMenuButton<String>(
+          padding: EdgeInsets.zero,
+          icon: Icon(Icons.more_horiz, size: 16, color: Colors.grey.shade400),
+          onSelected: (v) {
+            if (v == 'used') onUsed();
+            if (v == 'spoiled') onSpoiled();
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'used', child: Text('Mark as used (feed)')),
+            PopupMenuItem(
+              value: 'spoiled',
+              child: Text('Mark as spoiled', style: TextStyle(color: Colors.red.shade400)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -53,38 +152,31 @@ class _PumpScreenState extends State<PumpScreen> {
     // 5-day avg pump-source feeds per day
     final now = DateTime.now();
     int totalFeedLogs = 0;
-    int daysWithData = 0;
     for (int di = 1; di <= 5; di++) {
       final dayStart = DateTime(now.year, now.month, now.day - di);
       final dayEnd = DateTime(now.year, now.month, now.day - di + 1);
-      final count = _recentEvents.where((e) =>
+      totalFeedLogs += _recentEvents.where((e) =>
           e.type == EventType.feed &&
           e.source == 'pump' &&
           !e.startTime.isBefore(dayStart) &&
           e.startTime.isBefore(dayEnd)).length;
-      if (count > 0) daysWithData++;
-      totalFeedLogs += count;
     }
-    final avgFeedsPerDay = daysWithData == 0 ? 0.0 : totalFeedLogs / 5;
-    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+    final avgFeedsPerDay = totalFeedLogs / 5;
+
     const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
     const storageOrder = ['room', 'fridge', 'freezer'];
 
     final storageMap = <String, int>{};
-    final bottleCount = <String, int>{};
+    final bagCount = <String, int>{};
     for (final u in _stock) {
       final p = u['event'] as BabyEvent;
       final storage = p.storage ?? 'room';
       storageMap[storage] = (storageMap[storage] ?? 0) + (u['remaining'] as int);
-      bottleCount[storage] = (bottleCount[storage] ?? 0) + 1;
+      bagCount[storage] = (bagCount[storage] ?? 0) + 1;
     }
 
     final sorted = [..._stock]..sort((a, b) =>
         (b['event'] as BabyEvent).startTime.compareTo((a['event'] as BabyEvent).startTime));
-
-    final fullyUsed = recentUsage.where((u) =>
-        (u['fullyUsed'] as bool) &&
-        (u['pumpedAt'] as DateTime).isAfter(twoDaysAgo)).toList();
 
     Widget card({required Widget child}) => Container(
       width: double.infinity,
@@ -121,12 +213,12 @@ class _PumpScreenState extends State<PumpScreen> {
               Text('Feeds/day', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
             ])),
             Expanded(child: Column(children: [
-              Text(avgPumped.toString() + 'ml',
+              Text('${avgPumped}ml',
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kPumpColor)),
               Text('Pumped/day', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
             ])),
             Expanded(child: Column(children: [
-              Text(avgUsed.toString() + 'ml',
+              Text('${avgUsed}ml',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange.shade400)),
               Text('Used/day', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
             ])),
@@ -140,15 +232,16 @@ class _PumpScreenState extends State<PumpScreen> {
             card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               // Summary by storage type
               ...storageOrder.where((s) => storageMap.containsKey(s)).map((s) {
-                final bc = bottleCount[s] ?? 0;
+                final bc = bagCount[s] ?? 0;
+                final ml = storageMap[s]!;
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.only(bottom: 6),
                   child: Row(children: [
                     Text(storageEmoji[s] ?? '', style: const TextStyle(fontSize: 20)),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(storageMap[s].toString() + 'ml',
+                    Expanded(child: Text('${ml}ml',
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
-                    Text(bc.toString() + ' portion' + (bc == 1 ? '' : 's'),
+                    Text('$bc bag${bc == 1 ? '' : 's'}',
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   ]),
                 );
@@ -156,15 +249,14 @@ class _PumpScreenState extends State<PumpScreen> {
               if (storageMap.isNotEmpty) ...[
                 Builder(builder: (_) {
                   final totalMl = storageMap.values.fold(0, (s, v) => s + v);
-                  final feeds = (totalMl / 90).round();
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 4),
-                    child: Text('~$feeds feed${feeds == 1 ? '' : 's'} from ${totalMl}ml total',
+                    child: Text('~${_feedsBySize(totalMl)}',
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   );
                 }),
-                Divider(height: 16, color: borderColor),
-                // Individual bottles
+                Divider(height: 14, color: borderColor),
+                // Individual bags with actions
                 ...sorted.map((u) {
                   final p = u['event'] as BabyEvent;
                   final rem = u['remaining'] as int;
@@ -176,34 +268,41 @@ class _PumpScreenState extends State<PumpScreen> {
                   String expStr = '';
                   if (p.expiresAt != null) {
                     final diff = p.expiresAt!.difference(DateTime.now());
-                    if (diff.inDays > 1) {
-                      expStr = 'exp ' + diff.inDays.toString() + 'd';
-                    } else if (diff.inHours > 0) {
-                      expStr = 'exp ' + diff.inHours.toString() + 'h';
-                    } else {
-                      expStr = 'exp <1h';
-                    }
+                    expStr = diff.inDays > 1 ? 'exp ${diff.inDays}d'
+                        : diff.inHours > 0 ? 'exp ${diff.inHours}h' : 'exp <1h';
                   }
+                  final stockUsageMap = {
+                    'pumpEventId': p.id,
+                    'pumpedMl': p.ml ?? 0,
+                    'remaining': rem,
+                  };
                   return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(vertical: 3),
                     child: Row(children: [
-                      Text(sEmoji, style: const TextStyle(fontSize: 16)),
-                      const SizedBox(width: 8),
-                      Text('#' + id.toString(),
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                      Text(sEmoji, style: const TextStyle(fontSize: 15)),
+                      const SizedBox(width: 6),
+                      Text('#$id',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
                               color: Colors.grey.shade400)),
-                      const SizedBox(width: 8),
-                      Text(rem.toString() + 'ml',
+                      const SizedBox(width: 6),
+                      Text('${rem}ml',
                           style: TextStyle(fontSize: 13,
                               color: isPartial ? Colors.orange.shade400 : null)),
                       if (isPartial) ...[
                         const SizedBox(width: 4),
-                        Text('(' + used.toString() + 'ml used)',
+                        Text('(${used}ml used)',
                             style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                       ],
-                      const Spacer(),
-                      if (expStr.isNotEmpty)
+                      if (expStr.isNotEmpty) ...[
+                        const SizedBox(width: 6),
                         Text(expStr, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      ],
+                      const Spacer(),
+                      _actionMenu(
+                        context: context,
+                        onUsed: () => _markAsUsed(stockUsageMap),
+                        onSpoiled: () => _markAsSpoiled(p.id),
+                      ),
                     ]),
                   );
                 }),
@@ -221,27 +320,36 @@ class _PumpScreenState extends State<PumpScreen> {
                 final fullyUsedItem = u['fullyUsed'] as bool;
                 final usedMl = u['totalUsed'] as int;
                 return Opacity(
-                  opacity: fullyUsedItem ? 0.4 : 1.0,
+                  opacity: fullyUsedItem ? 0.45 : 1.0,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(children: [
-                      Text(pad2(pumpedAt.day) + '/' + pad2(pumpedAt.month),
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 8),
-                      Text(pad2(pumpedAt.hour) + ':' + pad2(pumpedAt.minute),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                      Text('${pad2(pumpedAt.day)}/${pad2(pumpedAt.month)}',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 6),
+                      Text('${pad2(pumpedAt.hour)}:${pad2(pumpedAt.minute)}',
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       if (id != null)
-                        Text('#' + id.toString(),
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                        Text('#$id',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                       const Spacer(),
-                      Text(pumpedMl.toString() + 'ml',
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kPumpColor)),
+                      Text('${pumpedMl}ml',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kPumpColor)),
                       if (usedMl > 0) ...[
-                        const SizedBox(width: 6),
-                        Text(usedMl.toString() + 'ml used',
+                        const SizedBox(width: 5),
+                        Text('${usedMl}ml used',
                             style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                       ],
+                      if (!fullyUsedItem) ...[
+                        const SizedBox(width: 2),
+                        _actionMenu(
+                          context: context,
+                          onUsed: () => _markAsUsed(u as Map<String, dynamic>),
+                          onSpoiled: () => _markAsSpoiled(u['pumpEventId'] as String),
+                        ),
+                      ] else
+                        const SizedBox(width: 28),
                     ]),
                   ),
                 );
@@ -253,5 +361,117 @@ class _PumpScreenState extends State<PumpScreen> {
     );
   }
 
-  String pad2(int n) => n.toString().padLeft(2, "0");
+  String pad2(int n) => n.toString().padLeft(2, '0');
+}
+
+class _MarkAsUsedSheet extends StatefulWidget {
+  final int pumpedMl;
+  const _MarkAsUsedSheet({required this.pumpedMl});
+  @override
+  State<_MarkAsUsedSheet> createState() => _MarkAsUsedSheetState();
+}
+
+class _MarkAsUsedSheetState extends State<_MarkAsUsedSheet> {
+  DateTime _when = DateTime.now();
+  int _selectedQuickIdx = 0;
+  bool _customTime = false;
+
+  String _fmtTime(DateTime d) =>
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  String _fmtDateTime(DateTime d) => '${d.day}/${d.month} ${_fmtTime(d)}';
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final primary = Theme.of(context).colorScheme.primary;
+
+    Widget chip(String label, int idx, Duration offset) => GestureDetector(
+      onTap: () => setState(() {
+        _when = now.subtract(offset);
+        _selectedQuickIdx = idx;
+        _customTime = false;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: (!_customTime && _selectedQuickIdx == idx) ? primary : Colors.grey.withOpacity(0.3),
+            width: (!_customTime && _selectedQuickIdx == idx) ? 2 : 1,
+          ),
+          color: (!_customTime && _selectedQuickIdx == idx) ? primary.withOpacity(0.12) : null,
+        ),
+        child: Text(label, style: TextStyle(
+          fontSize: 13,
+          fontWeight: (!_customTime && _selectedQuickIdx == idx) ? FontWeight.bold : FontWeight.normal,
+          color: (!_customTime && _selectedQuickIdx == idx) ? primary : Colors.grey.shade400,
+        )),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Mark as used — ${widget.pumpedMl}ml',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text('When was this fed to baby?',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+        const SizedBox(height: 16),
+        Row(children: [
+          chip('Now',  0, Duration.zero),
+          const SizedBox(width: 6),
+          chip('5m',   4, const Duration(minutes: 5)),
+          const SizedBox(width: 6),
+          chip('15m',  1, const Duration(minutes: 15)),
+          const SizedBox(width: 6),
+          chip('30m',  2, const Duration(minutes: 30)),
+          const SizedBox(width: 6),
+          Expanded(child: GestureDetector(
+            onTap: () async {
+              final d = await showDatePicker(
+                context: context,
+                initialDate: _when,
+                firstDate: now.subtract(const Duration(days: 30)),
+                lastDate: now,
+              );
+              if (d == null || !mounted) return;
+              final t = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(_when),
+              );
+              if (t == null) return;
+              final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+              if (dt.isAfter(now)) return;
+              setState(() { _when = dt; _customTime = true; _selectedQuickIdx = -1; });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _customTime ? primary : Colors.grey.withOpacity(0.3)),
+                color: _customTime ? primary.withOpacity(0.1) : null,
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('✏️', style: TextStyle(fontSize: 14)),
+                if (_customTime) ...[
+                  const SizedBox(height: 2),
+                  Text(_fmtDateTime(_when),
+                      style: TextStyle(fontSize: 10, color: primary)),
+                ],
+              ]),
+            ),
+          )),
+        ]),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: () => Navigator.pop(context, _when),
+            child: const Text('Log feed'),
+          ),
+        ),
+      ]),
+    );
+  }
 }

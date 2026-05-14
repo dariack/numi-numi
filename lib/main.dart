@@ -155,6 +155,9 @@ class MainApp extends StatefulWidget {
 
 class _MainAppState extends State<MainApp> {
   int _tab = 0;
+  int _insightsRefreshKey = 0;
+  int _pumpRefreshKey = 0;
+  int _sleepRefreshKey = 0;
   late final FirestoreService _service;
   late final SettingsService _settingsService;
   late final MedicineService _medicineService;
@@ -250,18 +253,19 @@ class _MainAppState extends State<MainApp> {
         id: 'insights', icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,
         label: 'Insights',
         builder: () => InsightsAccordionScreen(
+          key: ValueKey(_insightsRefreshKey),
           service: _service,
         ),
       ),
       _NavTab(
         id: 'pump', icon: Icons.water_drop_outlined, selectedIcon: Icons.water_drop,
         label: 'Pump',
-        builder: () => PumpScreen(service: _service),
+        builder: () => PumpScreen(key: ValueKey(_pumpRefreshKey), service: _service),
       ),
       _NavTab(
         id: 'sleep', icon: Icons.bedtime_outlined, selectedIcon: Icons.bedtime,
         label: 'Sleep',
-        builder: () => SleepAnalysisScreen(service: _service),
+        builder: () => SleepAnalysisScreen(key: ValueKey(_sleepRefreshKey), service: _service),
       ),
       _NavTab(
         id: 'settings', icon: Icons.settings_outlined, selectedIcon: Icons.settings,
@@ -308,7 +312,17 @@ class _MainAppState extends State<MainApp> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: safeTab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
+        onDestinationSelected: (i) {
+          setState(() {
+            _tab = i;
+            if (i < tabs.length) {
+              final id = tabs[i].id;
+              if (id == 'insights') _insightsRefreshKey++;
+              if (id == 'pump') _pumpRefreshKey++;
+              if (id == 'sleep') _sleepRefreshKey++;
+            }
+          });
+        },
         labelBehavior: tabs.length > 5
             ? NavigationDestinationLabelBehavior.onlyShowSelected
             : NavigationDestinationLabelBehavior.alwaysShow,

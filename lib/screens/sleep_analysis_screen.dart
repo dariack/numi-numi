@@ -199,11 +199,11 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         e.type == EventType.pump).toList();
     final feedEvents = _allEvents.where((e) => e.type == EventType.feed).toList();
 
-    // 7d avg daytime / night intake (breast + pump) + trend arrow + per-day chart data
+    // 7d avg daytime / night intake (breast + pump) — excludes today, shows last 7 full days
     var total7dDay = 0, total7dNight = 0;
     var recent3Night = 0, prior4Night = 0;
     final days7DayNight = <({String label, int dayMin, int nightMin})>[];
-    for (int di = 6; di >= 0; di--) {
+    for (int di = 7; di >= 1; di--) {
       final day = DateTime(now.year, now.month, now.day - di);
       final wStart = DateTime(day.year, day.month, day.day, 6);
       final wEnd   = DateTime(day.year, day.month, day.day + 1, 6);
@@ -215,9 +215,8 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         if (f.startTime.isBefore(dayEnd)) { dMin += dur; } else { nMin += dur; }
       }
       total7dDay += dMin; total7dNight += nMin;
-      if (di >= 4) { prior4Night += nMin; } else if (di < 3) { recent3Night += nMin; }
-      final lbl = di == 0 ? 'Today'
-          : '${day.day.toString().padLeft(2,"0")}/${day.month.toString().padLeft(2,"0")}';
+      if (di >= 5) { prior4Night += nMin; } else if (di <= 3) { recent3Night += nMin; }
+      final lbl = '${day.day.toString().padLeft(2,"0")}/${day.month.toString().padLeft(2,"0")}';
       days7DayNight.add((label: lbl, dayMin: dMin, nightMin: nMin));
     }
     final avg7dDayFeedMin   = total7dDay   ~/ 7;
@@ -456,21 +455,25 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
       for (final session in sessions) {
         final feeds = session.where((e) => e.type == EventType.feed).toList();
         final diapers = session.where((e) => e.type == EventType.diaper).toList();
-        var totalFeedMin = 0;
+        var breastMin = 0;
+        var pumpMl = 0;
         for (final f in feeds) {
           if (f.source == 'pump') {
             int ml = f.mlFed ?? 0;
             if (ml == 0 && f.linkedPumps != null) {
               try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
             }
-            totalFeedMin += ml ~/ 3;
+            pumpMl += ml;
           } else {
-            totalFeedMin += f.durationMinutes ?? 0;
+            breastMin += f.durationMinutes ?? 0;
           }
         }
         final parts = <String>[];
         if (feeds.isNotEmpty) {
-          parts.add('🍼 ${totalFeedMin > 0 ? _fmtHm(totalFeedMin) : '${feeds.length}×'}');
+          final feedParts = <String>[];
+          if (breastMin > 0) feedParts.add(_fmtHm(breastMin));
+          if (pumpMl > 0) feedParts.add('${pumpMl}ml ~${_fmtHm(pumpMl ~/ 3)}');
+          parts.add('🍼 ${feedParts.isNotEmpty ? feedParts.join(' + ') : '${feeds.length}×'}');
         }
         if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
         if (parts.isNotEmpty) {
@@ -549,21 +552,25 @@ class _SleepAnalysisScreenState extends State<SleepAnalysisScreen> {
         for (final session in pgSessions) {
           final feeds   = session.where((e) => e.type == EventType.feed).toList();
           final diapers = session.where((e) => e.type == EventType.diaper).toList();
-          var totalFeedMin = 0;
+          var breastMin = 0;
+          var pumpMl = 0;
           for (final f in feeds) {
             if (f.source == 'pump') {
               int ml = f.mlFed ?? 0;
               if (ml == 0 && f.linkedPumps != null) {
                 try { final list = List<Map<String, dynamic>>.from(jsonDecode(f.linkedPumps!)); ml = list.fold<int>(0, (s, x) => s + (x['ml'] as num).toInt()); } catch (_) {}
               }
-              totalFeedMin += ml ~/ 3;
+              pumpMl += ml;
             } else {
-              totalFeedMin += f.durationMinutes ?? 0;
+              breastMin += f.durationMinutes ?? 0;
             }
           }
           final parts = <String>[];
           if (feeds.isNotEmpty) {
-            parts.add('🍼 ${totalFeedMin > 0 ? _fmtHm(totalFeedMin) : '${feeds.length}×'}');
+            final feedParts = <String>[];
+            if (breastMin > 0) feedParts.add(_fmtHm(breastMin));
+            if (pumpMl > 0) feedParts.add('${pumpMl}ml ~${_fmtHm(pumpMl ~/ 3)}');
+            parts.add('🍼 ${feedParts.isNotEmpty ? feedParts.join(' + ') : '${feeds.length}×'}');
           }
           if (diapers.isNotEmpty) parts.add('🧷 ${diapers.length} diaper${diapers.length > 1 ? "s" : ""}');
           if (parts.isNotEmpty) {

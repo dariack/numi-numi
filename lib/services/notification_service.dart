@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import '../models/event.dart';
@@ -27,42 +28,67 @@ class NotificationService {
 
   Future<void> initialize() async {
     if (_initialized) return;
+
     tz_data.initializeTimeZones();
-    // Set local timezone using the device's UTC offset
-    // This picks the first matching tz location for the current offset
     try {
-      final offsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
-      final locations = tz.timeZoneDatabase.locations;
-      tz.Location? match;
-      for (final loc in locations.values) {
-        final zone = loc.zones.isNotEmpty ? loc.zones.last : null;
-        if (zone != null && zone.offset == offsetMinutes * 60) {
-          match = loc;
-          break;
-        }
-      }
-      tz.setLocalLocation(match ?? tz.UTC);
+      final tzInfo = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(tzInfo.identifier));
     } catch (_) {
       tz.setLocalLocation(tz.UTC);
     }
 
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+    const darwinSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: darwinSettings,
+      macOS: darwinSettings,
+    );
 
     await _plugin.initialize(initSettings);
 
-    // Create the notification channel
+    // Create the Android notification channel
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
 
-    // Request permission (Android 13+)
+    // Request Android 13+ notification permission
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
+    // Request iOS permission explicitly
+    await _plugin
+        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+
     _initialized = true;
   }
+
+  NotificationDetails get _details => NotificationDetails(
+    android: AndroidNotificationDetails(
+      _channel.id,
+      _channel.name,
+      channelDescription: _channel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/ic_launcher',
+    ),
+    iOS: const DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+    macOS: const DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    ),
+  );
 
   /// Schedule a feed reminder X hours after [lastFeedEnd].
   /// Cancels any existing feed reminder first.
@@ -74,14 +100,11 @@ class NotificationService {
     final fireAt = lastFeedEnd.add(Duration(hours: settings.feedThresholdHours));
     if (fireAt.isBefore(DateTime.now())) return; // already past
 
-    // Don't schedule if it would fire during quiet hours
-    // (We'll still let it fire if quiet hours toggle is off)
     await _scheduleNotification(
       id: kFeedNotificationId,
       title: '🍼 Time to feed Yuli',
       body: '${settings.feedThresholdHours}h since last feed',
       fireAt: fireAt,
-      settings: settings,
     );
   }
 
@@ -99,7 +122,6 @@ class NotificationService {
       title: '🧷 Diaper check',
       body: '${settings.diaperThresholdHours}h since last diaper change',
       fireAt: fireAt,
-      settings: settings,
     );
   }
 
@@ -125,7 +147,11 @@ class NotificationService {
     // Last feed — safely find, null if none
     final feeds = sorted.where((e) => e.type == EventType.feed).toList();
     if (feeds.isNotEmpty) {
-      final feedEnd = feeds.first.endTime ?? feeds.first.startTime;
+      final f = feeds.first;
+      final dur = f.durationMinutes;
+      final feedEnd = (dur != null && dur > 0 && f.source != 'pump')
+          ? f.startTime.add(Duration(minutes: dur))
+          : (f.endTime ?? f.startTime);
       await scheduleFeedReminder(feedEnd, settings);
     } else {
       await cancelFeedReminder();
@@ -145,23 +171,13 @@ class NotificationService {
     required String title,
     required String body,
     required DateTime fireAt,
-    required ReminderSettings settings,
   }) async {
     await _plugin.zonedSchedule(
       id,
       title,
       body,
       tz.TZDateTime.from(fireAt, tz.local),
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channel.id,
-          _channel.name,
-          channelDescription: _channel.description,
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
+      _details,
       // ignore: deprecated_member_use
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
@@ -169,9 +185,7 @@ class NotificationService {
     );
   }
 
-  /// Returns a human-readable description of scheduled reminders (for debug/settings display)
   /// Fires an immediate notification when a partner logs an event.
-  /// Uses show() (not scheduled) so it appears right away.
   Future<void> showPartnerActivity({
     required String caregiverName,
     required String eventName,
@@ -180,16 +194,7 @@ class NotificationService {
       kPartnerActivityId,
       '🤝 $caregiverName logged $eventName',
       'Tap to open the app',
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channel.id,
-          _channel.name,
-          channelDescription: _channel.description,
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
-        ),
-      ),
+      _details,
     );
   }
 

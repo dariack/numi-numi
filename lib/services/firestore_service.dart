@@ -107,17 +107,15 @@ class FirestoreService {
             .toList());
   }
 
-  // Helper: try cache first, fall back to server. Prevents offline hangs.
+  // Server-first fetch with immediate cache fallback.
+  // On mobile, Source.server throws quickly when offline so there is no hang.
   Future<QuerySnapshot> _getWithCache(Query query) async {
     try {
-      final cached = await query.get(const GetOptions(source: Source.cache));
-      if (cached.docs.isNotEmpty) {
-        // Also trigger a background server fetch to refresh cache
-        query.get(const GetOptions(source: Source.server)).catchError((_) => cached);
-        return cached;
-      }
+      return await query.get(const GetOptions(source: Source.server));
     } catch (_) {}
-    // Cache empty or failed — try server (will hang offline but no choice)
+    try {
+      return await query.get(const GetOptions(source: Source.cache));
+    } catch (_) {}
     return query.get();
   }
 
@@ -886,8 +884,10 @@ class FirestoreService {
       }
     }
 
-    // Recent pumps (last 3 days), sorted newest first
-    final recentPumps3d = allPumps.where((p) => p.startTime.isAfter(threeDaysAgo)).toList();
+    // Recent pumps (last 3 days), sorted newest first — exclude spoiled
+    final recentPumps3d = allPumps
+        .where((p) => p.startTime.isAfter(threeDaysAgo) && !p.spoiled)
+        .toList();
     recentPumps3d.sort((a, b) => b.startTime.compareTo(a.startTime));
 
     final recentUsage = recentPumps3d.map((p) {
