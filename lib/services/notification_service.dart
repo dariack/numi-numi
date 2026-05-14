@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -9,6 +10,7 @@ import '../models/reminder_settings.dart';
 const int kFeedNotificationId = 1001;
 const int kDiaperNotificationId = 1002;
 const int kPartnerActivityId = 1003;
+const int kOngoingFeedId = 1004;
 
 class NotificationService {
   NotificationService._();
@@ -17,13 +19,22 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  // Android notification channel
+  // Android notification channels
   static const _channel = AndroidNotificationChannel(
     'yuli_reminders',
     'Yuli Reminders',
     description: 'Feed and diaper reminders for Yuli',
     importance: Importance.high,
     playSound: true,
+  );
+
+  static const _ongoingChannel = AndroidNotificationChannel(
+    'feeding_ongoing',
+    'Ongoing Feed',
+    description: 'Live timer shown while a feeding session is active',
+    importance: Importance.low,
+    playSound: false,
+    enableVibration: false,
   );
 
   Future<void> initialize() async {
@@ -51,15 +62,17 @@ class NotificationService {
 
     await _plugin.initialize(initSettings);
 
-    // Create the Android notification channel
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(_channel);
+    // Create Android notification channels
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.createNotificationChannel(_channel);
+    await androidPlugin?.createNotificationChannel(_ongoingChannel);
 
     // Request Android 13+ notification permission
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
+
 
     // Request iOS permission explicitly
     await _plugin
@@ -135,6 +148,38 @@ class NotificationService {
 
   Future<void> cancelAll() async {
     await _plugin.cancelAll();
+  }
+
+  /// Shows a sticky chronometer notification on Android while a feed is active.
+  /// Safe to call repeatedly — replaces the same notification ID in place.
+  /// No-op on iOS/macOS (no equivalent without Live Activities).
+  Future<void> showOngoingFeed(DateTime startTime) async {
+    if (!Platform.isAndroid) return;
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _ongoingChannel.id,
+        _ongoingChannel.name,
+        channelDescription: _ongoingChannel.description,
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        autoCancel: false,
+        showWhen: true,
+        when: startTime.millisecondsSinceEpoch,
+        usesChronometer: true,
+        icon: '@mipmap/ic_launcher',
+      ),
+    );
+    await _plugin.show(
+      kOngoingFeedId,
+      '🍼 Feeding in progress',
+      'Tap to open the app',
+      details,
+    );
+  }
+
+  Future<void> cancelOngoingFeed() async {
+    await _plugin.cancel(kOngoingFeedId);
   }
 
   /// Reschedule both reminders from a fresh set of events.

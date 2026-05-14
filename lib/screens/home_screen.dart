@@ -113,31 +113,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   static const _affirmations = [
-    "Real heroes feed at 3am 🍼",
-    "You're more capable than you know 💪",
-    "Yuli is so lucky to have you ✨",
-    "Every log is an act of love ❤️",
-    "Sleep-deprived and still crushing it 🌙",
-    "You're building the most important bond 🌟",
-    "No manual needed — you've got this 💛",
-    "Best mama in the universe 🌍",
-    "You noticed, you showed up, you cared 🏆",
-    "Tired? Yes. Amazing? Absolutely. 💫",
-    "Yuli is growing because of you 👶",
-    "This is what unconditional love looks like 💖",
-    "Every small moment adds up to everything 🌸",
-    "You are your baby's whole world 🌈",
-    "Superhero status: confirmed 🦸",
-    "You're doing the hardest and most beautiful job 🎀",
-    "Look at you — tracking every little thing 📋",
-    "Postpartum warrior right here 🔥",
-    "Strong mama, happy baby 💕",
-    "You showed up today — that's everything 🥇",
-    "The love you give is immeasurable 🌻",
-    "You make it look effortless (we know it's not) ✨",
-    "World's most dedicated parent 🏅",
-    "Every feed, every change, every cuddle — it counts 💝",
-    "You're not just surviving — you're thriving 🌷",
+    "Nailed it 🎯",
+    "Baby fed. You: legend ✅",
+    "Tired? Still here. Hero. 🦸",
+    "The app sees your effort 👀",
+    "3am and still logging? Iconic 🌙",
+    "Plot twist: you're amazing 🌈",
+    "Yuli doesn't know how lucky they are. Yet. 👶",
+    "Zero capes, maximum love 🤍",
+    "You're basically a scientist now 📊",
+    "Future-you will thank present-you 🙏",
+    "OK but who's tracking YOUR naps? 😂",
+    "New high score unlocked 🎮",
+    "Is there a medal for this? There should be 🥇",
+    "Mission: complete ✅",
+    "Milk math? Mastered 🧮",
+    "Yuli appreciates this. Trust. 🥹",
+    "Sleep when the baby sleeps… or keep logging 📱",
+    "Still going? Legend confirmed 🏆",
+    "This is what love looks like 💛",
+    "Baby thriving, you surviving, perfect score 🔥",
+    "Pro move: logged it immediately 🏅",
+    "Yuli's main character energy 👑",
+    "Quick! Before you forgot! ✅ Nice.",
+    "The data doesn't lie — you rock 📈",
+    "Every log is a tiny act of love 💫",
   ];
 
   void _showConfetti(BuildContext ctx) {
@@ -376,6 +376,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _checkPartnerActivity(events);
       _widgetService.update();
       widget.reminderService?.rescheduleAll(events);
+      // Ongoing feed notification (Android sticky chronometer)
+      final ongoing = stats['ongoing'] as BabyEvent?;
+      if (ongoing != null && ongoing.type == EventType.feed) {
+        NotificationService.instance.showOngoingFeed(ongoing.startTime);
+      } else {
+        NotificationService.instance.cancelOngoingFeed();
+      }
     }, onError: (_) {
       if (mounted) setState(() => _loading = false);
     });
@@ -1236,13 +1243,13 @@ class _PumpStockCard extends StatelessWidget {
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                   }
                   final storageMap = <String, int>{};
-                  final portionMap = <String, int>{};
+                  final storageBags = <String, List<int>>{};
                   for (final u in sorted) {
                     final storage = (u['storage'] as String?) ?? 'room';
                     final rem = u['remaining'] as int;
                     if (rem > 0) {
                       storageMap[storage] = (storageMap[storage] ?? 0) + rem;
-                      portionMap[storage] = (portionMap[storage] ?? 0) + 1;
+                      storageBags.putIfAbsent(storage, () => []).add(rem);
                     }
                   }
                   if (storageMap.isEmpty) {
@@ -1251,13 +1258,19 @@ class _PumpStockCard extends StatelessWidget {
                   }
                   const storageEmoji = {'room': '🏠', 'fridge': '❄️', 'freezer': '🧊'};
                   const order = ['room', 'fridge', 'freezer'];
-                  String feedsBySize(int ml) {
-                    final big = ml ~/ 110; final med = ml ~/ 80; final small = ml ~/ 50;
-                    final parts = <String>[];
-                    if (big > 0) parts.add('$big big');
-                    if (med > 0) parts.add('$med med');
-                    if (small > 0) parts.add('$small small');
-                    return parts.isEmpty ? '<1 feed' : parts.join(', ');
+                  String bagsBySize(List<int> bags) {
+                    int small = 0, med = 0, large = 0;
+                    for (final ml in bags) {
+                      if (ml <= 60) small++;
+                      else if (ml <= 90) med++;
+                      else large++;
+                    }
+                    final parts = <String>[
+                      if (large > 0) '$large large',
+                      if (med > 0) '$med med',
+                      if (small > 0) '$small small',
+                    ];
+                    return parts.join(' + ');
                   }
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1265,9 +1278,10 @@ class _PumpStockCard extends StatelessWidget {
                         .where((s) => storageMap.containsKey(s))
                         .map((s) {
                           final ml = storageMap[s]!;
-                          final bags = portionMap[s] ?? 0;
+                          final bags = storageBags[s] ?? [];
+                          final sizeSummary = bagsBySize(bags);
                           return Text(
-                            '${storageEmoji[s] ?? '🏠'} ${ml}ml ($bags bag${bags == 1 ? '' : 's'}, ~${feedsBySize(ml)})',
+                            '${storageEmoji[s] ?? '🏠'} ${ml}ml${sizeSummary.isNotEmpty ? ' ($sizeSummary)' : ''}',
                             style: TextStyle(fontSize: 13, color: Colors.grey.shade400));
                         })
                         .toList(),
